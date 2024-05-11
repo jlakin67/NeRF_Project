@@ -7,6 +7,9 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		0351CDCF2BF02B7F00BA4315 /* Layer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0351CDCE2BF02B7F00BA4315 /* Layer.swift */; };
+		0351CDD12BF02BC700BA4315 /* util.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0351CDD02BF02BC700BA4315 /* util.swift */; };
+		0351CDD32BF02C0500BA4315 /* MLP.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0351CDD22BF02C0500BA4315 /* MLP.swift */; };
 		03F4034A2BEEFB53008DE62B /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03F403492BEEFB53008DE62B /* main.swift */; };
 /* End PBXBuildFile section */
 
@@ -23,6 +26,9 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		0351CDCE2BF02B7F00BA4315 /* Layer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Layer.swift; sourceTree = "<group>"; };
+		0351CDD02BF02BC700BA4315 /* util.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = util.swift; sourceTree = "<group>"; };
+		0351CDD22BF02C0500BA4315 /* MLP.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MLP.swift; sourceTree = "<group>"; };
 		03F403462BEEFB53008DE62B /* NeRF_Project */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = NeRF_Project; sourceTree = BUILT_PRODUCTS_DIR; };
 		03F403492BEEFB53008DE62B /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -57,7 +63,10 @@
 		03F403482BEEFB53008DE62B /* NeRF_Project */ = {
 			isa = PBXGroup;
 			children = (
+				0351CDD02BF02BC700BA4315 /* util.swift */,
 				03F403492BEEFB53008DE62B /* main.swift */,
+				0351CDCE2BF02B7F00BA4315 /* Layer.swift */,
+				0351CDD22BF02C0500BA4315 /* MLP.swift */,
 			);
 			path = NeRF_Project;
 			sourceTree = "<group>";
@@ -120,7 +129,10 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				0351CDD12BF02BC700BA4315 /* util.swift in Sources */,
+				0351CDD32BF02C0500BA4315 /* MLP.swift in Sources */,
 				03F4034A2BEEFB53008DE62B /* main.swift in Sources */,
+				0351CDCF2BF02B7F00BA4315 /* Layer.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
