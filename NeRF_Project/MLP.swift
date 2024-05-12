@@ -16,16 +16,11 @@ enum ActivationFunction {
 }
 
 class MLP {
-    //var inputTensorData: [MPSGraphTensorData] = Array(repeating: MPSGraphTensorData(), count: 2)
-    //var labelTensorData: [MPSGraphTensorData] = Array(repeating: MPSGraphTensorData(), count: 2)
-//    var epochTensorData: [MPSGraphTensorData] = Array(repeating: MPSGraphTensorData(), count: 2)
     var layers: [Layer] = []
     var layerActivationFunctions: [ActivationFunction] = []
     var layerWeightTensors: [MPSGraphTensor] = []
     var layerBiasTensors: [MPSGraphTensor] = []
     var variableTensors: [MPSGraphTensor] = []
-//    var momentumTensors: [MPSGraphTensor:MPSGraphTensor] = [:]
-//    var velocityTensors: [MPSGraphTensor:MPSGraphTensor] = [:]
     var device: MTLDevice?
     var commandQueue: MTLCommandQueue?
     var doubleBufferingSemaphore: DispatchSemaphore = DispatchSemaphore(value: 2)
@@ -35,11 +30,11 @@ class MLP {
     var lossTensor: MPSGraphTensor?
     var inputsPlaceholderTensor: MPSGraphTensor
     var labelsPlaceholderTensor: MPSGraphTensor
-//    var epochPlaceholderTensor: MPSGraphTensor
     var targetTrainingTensors: [MPSGraphTensor] = []
     var targetInferenceTensor: MPSGraphTensor?
     var targetTrainingOps: [MPSGraphOperation] = []
     var loss: Float = 0.0
+    //inputShape: The dimensions of the tensor used as an input
     init(inputShape: [NSNumber], labelSize: Int) {
         self.inputShape = inputShape
         self.labelSize = labelSize
@@ -54,7 +49,6 @@ class MLP {
         graph = MPSGraph()
         inputsPlaceholderTensor = graph.placeholder(shape: inputShape, dataType: .float32, name: nil)
         labelsPlaceholderTensor = graph.placeholder(shape: [-1, labelSize as NSNumber], dataType: .float32, name: nil)
-//        epochPlaceholderTensor = graph.placeholder(shape: [1], dataType: .float32, name: nil)
     }
     func lossFunction(tensors: [MPSGraphTensor], labelTensor: MPSGraphTensor) -> MPSGraphTensor {
         //square loss
@@ -75,8 +69,6 @@ class MLP {
             let data = Data(bytes: &initial, count: MemoryLayout<Float>.size*initial.count)
             weightTensor = graph.variable(with: data, shape: [inputSize as NSNumber, outputSize as NSNumber], dataType: .float32, name: nil)
         }
-//        let weightMomentumTensor = graph.variable(with: layer.weightData, shape: [inputSize as NSNumber, outputSize as NSNumber], dataType: .float32, name: nil)
-//        let weightVelocityTensor = graph.variable(with: layer.weightData, shape: [inputSize as NSNumber, outputSize as NSNumber], dataType: .float32, name: nil)
         var biasTensor: MPSGraphTensor
         if (initialBiasArray == nil) {
             biasTensor = graph.variable(with: layer.biasData, shape: [outputSize as NSNumber], dataType: .float32, name: nil)
@@ -85,16 +77,10 @@ class MLP {
             let data = Data(bytes: &initial, count: MemoryLayout<Float>.size*initial.count)
             biasTensor = graph.variable(with: data, shape: [outputSize as NSNumber], dataType: .float32, name: nil)
         }
-//        let biasMomentumTensor = graph.variable(with: layer.biasData, shape: [outputSize as NSNumber], dataType: .float32, name: nil)
-//        let biasVelocityTensor = graph.variable(with: layer.biasData, shape: [outputSize as NSNumber], dataType: .float32, name: nil)
         layerWeightTensors.append(weightTensor)
         variableTensors.append(weightTensor)
         layerBiasTensors.append(biasTensor)
         variableTensors.append(biasTensor)
-//        momentumTensors[weightTensor] = weightMomentumTensor
-//        momentumTensors[biasTensor] = biasMomentumTensor
-//        velocityTensors[weightTensor] = weightVelocityTensor
-//        velocityTensors[biasTensor] = biasVelocityTensor
         layers.append(layer)
         layerActivationFunctions.append(activationFunction)
     }
@@ -124,19 +110,10 @@ class MLP {
         targetTrainingTensors.append(lossTensor)
         self.lossTensor = lossTensor
         let gradientTensors = graph.gradients(of: lossTensor, with: variableTensors, name: nil)
-//        let beta1Tensor = graph.constant(0.9, dataType: .float32)
-//        let beta2Tensor = graph.constant(0.99, dataType: .float32)
-//        let epsilonTensor = graph.constant(1e-8, dataType: .float32)
         for variableTensor in variableTensors {
-            let updateTensor = graph.stochasticGradientDescent(learningRate: graph.constant(0.001, dataType: .float32), values: variableTensor, gradient: gradientTensors[variableTensor]!, name: nil) //stochastic gradient descent for now, change to adam later
+            let updateTensor = graph.stochasticGradientDescent(learningRate: graph.constant(0.001, dataType: .float32), values: variableTensor, gradient: gradientTensors[variableTensor]!, name: nil)
             let assignOp = graph.assign(variableTensor, tensor: updateTensor, name: nil)
-//            let adamUpdate = graph.adam(learningRate: graph.constant(0.001, dataType: .float32), beta1: beta1Tensor, beta2: beta2Tensor, epsilon: epsilonTensor, beta1Power: graph.power(beta1Tensor, epochPlaceholderTensor, name: nil), beta2Power: graph.power(beta2Tensor, epochPlaceholderTensor, name: nil), values: variableTensor, momentum: momentumTensors[variableTensor]!, velocity: velocityTensors[variableTensor]!, maximumVelocity: nil, gradient: gradientTensors[variableTensor]!, name: nil)
-//            let assignOp = graph.assign(variableTensor, tensor: adamUpdate[0], name: nil)
-//            let momentumAssignOp = graph.assign(momentumTensors[variableTensor]!, tensor: adamUpdate[1], name: nil)
-//            let velocityAssignOp = graph.assign(velocityTensors[variableTensor]!, tensor: adamUpdate[2], name: nil)
             targetTrainingOps.append(assignOp)
-//            targetTrainingOps.append(momentumAssignOp)
-//            targetTrainingOps.append(velocityAssignOp)
         }
     }
     func trainDoubleBuffered(inputData: [[Float]], labelData: [[Float]], numLabels: Int, numEpochs: Int, batchSize: Int, inputDataType: MPSDataType) {
@@ -147,7 +124,7 @@ class MLP {
         
         var inputBatch: [Float] = []
         var labelBatch: [Float] = []
-        for i in 1...numEpochs {
+        for _ in 1...numEpochs {
             loss = 0.0
             var firstIndex = 0
             autoreleasepool {
@@ -172,10 +149,6 @@ class MLP {
                     //print(inputTensorData[currentTensorDataIndex].shape)
                     let labelTensorDataTemp = Data(bytes: &labelBatch, count: MemoryLayout<Float>.size*labelBatch.count)
                     let labelTensorDataCurrent = MPSGraphTensorData(device: MPSGraphDevice(mtlDevice: device!), data: labelTensorDataTemp, shape: [curBatchSize as NSNumber, labelData[0].count as NSNumber], dataType: .float32)
-    //                var epoch = Float(i)
-    //                let epochTensorDataTemp = Data(bytes: &epoch, count: MemoryLayout<Float>.size)
-    //                epochTensorData[currentTensorDataIndex] = MPSGraphTensorData(device: MPSGraphDevice(mtlDevice: device!), data: epochTensorDataTemp, shape: [1], dataType: .float32)
-                    //print(labelTensorData[currentTensorDataIndex].shape)
                     let execDescriptor = MPSGraphExecutionDescriptor()
                     execDescriptor.completionHandler = { (resultsDictionary, nil) in
                         self.doubleBufferingSemaphore.signal()
@@ -187,7 +160,6 @@ class MLP {
                         }
                     }
                     graph.runAsync(with: commandQueue!, feeds: [inputsPlaceholderTensor: inputTensorDataCurrent, labelsPlaceholderTensor: labelTensorDataCurrent], targetTensors: targetTrainingTensors, targetOperations: targetTrainingOps, executionDescriptor: execDescriptor)
-    //                graph.runAsync(with: commandQueue!, feeds: [inputsPlaceholderTensor: inputTensorData[currentTensorDataIndex], labelsPlaceholderTensor: labelTensorData[currentTensorDataIndex], epochPlaceholderTensor: epochTensorData[currentTensorDataIndex]], targetTensors: targetTrainingTensors, targetOperations: targetTrainingOps, executionDescriptor: execDescriptor)
                     
                     firstIndex += batchSize
                 }
@@ -227,7 +199,7 @@ class MLP {
         return results
     }
     func getVariableData(results: [MPSGraphTensor: MPSGraphTensorData]) -> Data {
-        var weights = CodableWeights()
+        let weights = CodableWeights()
         for i in 0..<layerWeightTensors.count {
             var weightMatrix: [Float] = Array(repeating: 0.0, count: layers[i].numInputs*layers[i].numOutputs)
             let tensorData: MPSGraphTensorData = results[layerWeightTensors[i]]!
@@ -267,14 +239,14 @@ class MLP2D : MLP {
     var hashTableSizeTensors: [MPSGraphTensor] = []
     var hashTableWeightTensors: [MPSGraphTensor] = []
     var hashTableInitialized: Bool = false
-    private func hashTensor(indexTensor: MPSGraphTensor, primeTensor: MPSGraphTensor, hashTableSizeTensor: MPSGraphTensor, corner: Corner2D) -> MPSGraphTensor {
-        var xIndexTensor = graph.sliceTensor(indexTensor, dimension: 1, start: 0, length: 1, name: nil)
+    private func hashTensor(indexTensor: MPSGraphTensor, primeTensor: MPSGraphTensor, hashTableSizeTensor: MPSGraphTensor, corner: Corner2D, dimension: Int) -> MPSGraphTensor {
+        var xIndexTensor = graph.sliceTensor(indexTensor, dimension: dimension, start: 0, length: 1, name: nil)
         var oneTensor = graph.constant(1, dataType: .float32)
         oneTensor = graph.cast(oneTensor, to: .int32, name: nil)
         if (corner == .lr || corner == .ur) {
             xIndexTensor = graph.addition(oneTensor, xIndexTensor, name: nil)
         }
-        var yIndexTensor = graph.sliceTensor(indexTensor, dimension: 1, start: 1, length: 1, name: nil)
+        var yIndexTensor = graph.sliceTensor(indexTensor, dimension: dimension, start: 1, length: 1, name: nil)
         if (corner == .ul || corner == .ur) {
             yIndexTensor = graph.addition(oneTensor, yIndexTensor, name: nil)
         }
@@ -283,34 +255,37 @@ class MLP2D : MLP {
         let moduloTensor = graph.modulo(xorTensor, hashTableSizeTensor, name: nil)
         return moduloTensor
     }
-    func invokeHashTable() -> MPSGraphTensor {
+    func invokeHashTable(inputTensor: MPSGraphTensor?, dimension: Int) -> MPSGraphTensor {
         assert(hashTableInitialized)
+        var inTensor: MPSGraphTensor
+        if (inputTensor == nil) {
+            inTensor = inputsPlaceholderTensor
+        } else {
+            inTensor = inputTensor!
+        }
         let prime1Data = Data(bytes: &prime1, count: MemoryLayout<Int>.size)
         let prime1Tensor = graph.constant(prime1Data, shape: [1], dataType: .int32)
         var interpolatedWeightTensors: [MPSGraphTensor] = []
         for i in 0..<numLevels {
             let resolutionFloatTensor = graph.cast(resolutionTensors[i], to: .float32, name: nil)
-            let scaledInputTensor = graph.multiplication(resolutionFloatTensor, inputsPlaceholderTensor, name: nil)
+            let scaledInputTensor = graph.multiplication(resolutionFloatTensor, inTensor, name: nil)
             let lowerLeftTensor = graph.floor(with: scaledInputTensor, name: nil)
             let lowerLeftIndexTensor = graph.cast(lowerLeftTensor, to: .int32, name: nil)
-            let lowerLeftHashTensor = hashTensor(indexTensor: lowerLeftIndexTensor, primeTensor: prime1Tensor, hashTableSizeTensor: hashTableSizeTensors[i], corner: .ll)
+            let lowerLeftHashTensor = hashTensor(indexTensor: lowerLeftIndexTensor, primeTensor: prime1Tensor, hashTableSizeTensor: hashTableSizeTensors[i], corner: .ll, dimension: dimension)
             var lowerLeftWeightTensor = graph.gatherND(withUpdatesTensor: hashTableWeightTensors[i], indicesTensor: lowerLeftHashTensor, batchDimensions: 0, name: nil)
-            //print("Lower left weight Shape: \(lowerLeftWeightTensor.shape![0]) \(lowerLeftWeightTensor.shape![1])")
-            let lowerRightHashTensor = hashTensor(indexTensor: lowerLeftIndexTensor, primeTensor: prime1Tensor, hashTableSizeTensor: hashTableSizeTensors[i], corner: .lr)
-            let upperLeftHashTensor = hashTensor(indexTensor: lowerLeftIndexTensor, primeTensor: prime1Tensor, hashTableSizeTensor: hashTableSizeTensors[i], corner: .ul)
-            let upperRightHashTensor = hashTensor(indexTensor: lowerLeftIndexTensor, primeTensor: prime1Tensor, hashTableSizeTensor: hashTableSizeTensors[i], corner: .ur)
+            let lowerRightHashTensor = hashTensor(indexTensor: lowerLeftIndexTensor, primeTensor: prime1Tensor, hashTableSizeTensor: hashTableSizeTensors[i], corner: .lr, dimension: dimension)
+            let upperLeftHashTensor = hashTensor(indexTensor: lowerLeftIndexTensor, primeTensor: prime1Tensor, hashTableSizeTensor: hashTableSizeTensors[i], corner: .ul, dimension: dimension)
+            let upperRightHashTensor = hashTensor(indexTensor: lowerLeftIndexTensor, primeTensor: prime1Tensor, hashTableSizeTensor: hashTableSizeTensors[i], corner: .ur, dimension: dimension)
             var lowerRightWeightTensor = graph.gatherND(withUpdatesTensor: hashTableWeightTensors[i], indicesTensor: lowerRightHashTensor, batchDimensions: 0, name: nil)
             var upperLeftWeightTensor = graph.gatherND(withUpdatesTensor: hashTableWeightTensors[i], indicesTensor: upperLeftHashTensor, batchDimensions: 0, name: nil)
             var upperRightWeightTensor = graph.gatherND(withUpdatesTensor: hashTableWeightTensors[i], indicesTensor: upperRightHashTensor, batchDimensions: 0, name: nil)
             let onesTensor = graph.constant(1.0, dataType: .float32)
             let lowerLeftDiffTensor = graph.subtraction(scaledInputTensor, lowerLeftTensor, name: nil)
-            //print("Lower left diff Shape: \(lowerLeftDiffTensor.shape![0]) \(lowerLeftDiffTensor.shape![1])")
             let oneMinusLowerLeftDiffTensor = graph.subtraction(onesTensor, lowerLeftDiffTensor, name: nil)
-            let lowerLeftDiffXTensor = graph.sliceTensor(lowerLeftDiffTensor, dimension: 1, start: 0, length: 1, name: nil)
-            //print("Lower left diff X Shape: \(lowerLeftDiffXTensor.shape![0]) \(lowerLeftDiffXTensor.shape![1])")
-            let lowerLeftDiffYTensor = graph.sliceTensor(lowerLeftDiffTensor, dimension: 1, start: 1, length: 1, name: nil)
-            let oneMinusLowerLeftDiffXTensor = graph.sliceTensor(oneMinusLowerLeftDiffTensor, dimension: 1, start: 0, length: 1, name: nil)
-            let oneMinusLowerLeftDiffYTensor = graph.sliceTensor(oneMinusLowerLeftDiffTensor, dimension: 1, start: 1, length: 1, name: nil)
+            let lowerLeftDiffXTensor = graph.sliceTensor(lowerLeftDiffTensor, dimension: dimension, start: 0, length: 1, name: nil)
+            let lowerLeftDiffYTensor = graph.sliceTensor(lowerLeftDiffTensor, dimension: dimension, start: 1, length: 1, name: nil)
+            let oneMinusLowerLeftDiffXTensor = graph.sliceTensor(oneMinusLowerLeftDiffTensor, dimension: dimension, start: 0, length: 1, name: nil)
+            let oneMinusLowerLeftDiffYTensor = graph.sliceTensor(oneMinusLowerLeftDiffTensor, dimension: dimension, start: 1, length: 1, name: nil)
             let upperRightScaleTensor = graph.multiplication(lowerLeftDiffXTensor, lowerLeftDiffYTensor, name: nil)
             let upperLeftScaleTensor = graph.multiplication(oneMinusLowerLeftDiffXTensor, lowerLeftDiffYTensor, name: nil)
             let lowerLeftScaleTensor = graph.multiplication(oneMinusLowerLeftDiffXTensor, oneMinusLowerLeftDiffYTensor, name: nil)
@@ -326,7 +301,6 @@ class MLP2D : MLP {
             
         }
         let activationTensor = graph.concatTensors(interpolatedWeightTensors, dimension: 1, name: nil)
-        //print("Activation Shape: \(activationTensor.shape![0]) \(activationTensor.shape![1])")
         return activationTensor
     }
     func createHashTable(minResolution: Int, maxResolution: Int, maxEntries: Int, initialHashTableWeights: [[Float]]?) {
@@ -340,7 +314,7 @@ class MLP2D : MLP {
             let hashTableSizeData = Data(bytes: &hashTableSize, count: MemoryLayout<Int>.size)
             let hashTableSizeTensor = graph.constant(hashTableSizeData, shape: [1], dataType: .int32)
             hashTableSizeTensors.append(hashTableSizeTensor)
-            print("Level \(i): \(hashTableSize) elements")
+            //print("Level \(i): \(hashTableSize) elements")
             var weightData: Data
             if (initialHashTableWeights == nil) {
                 var arr: [Float] = []
@@ -354,17 +328,13 @@ class MLP2D : MLP {
                 weightData = Data(bytes: &weights, count: weights.count*MemoryLayout<Float>.size)
             }
             let weightTensor = graph.variable(with: weightData, shape: [hashTableSize as NSNumber, 2 as NSNumber], dataType: .float32, name: nil)
-//            let weightMomentumTensor = graph.variable(with: weightData, shape: [resolution as NSNumber, 2 as NSNumber], dataType: .float32, name: nil)
-//            let weightVelocityTensor = graph.variable(with: weightData, shape: [resolution as NSNumber, 2 as NSNumber], dataType: .float32, name: nil)
             hashTableWeightTensors.append(weightTensor)
             variableTensors.append(weightTensor)
-//            momentumTensors[weightTensor] = weightMomentumTensor
-//            velocityTensors[weightTensor] = weightVelocityTensor
         }
         hashTableInitialized = true
     }
     override func getVariableData(results: [MPSGraphTensor: MPSGraphTensorData]) -> Data {
-        var weights = CodableWeights()
+        let weights = CodableWeights()
         for i in 0..<layerWeightTensors.count {
             var weightMatrix: [Float] = Array(repeating: 0.0, count: layers[i].numInputs*layers[i].numOutputs)
             let tensorData: MPSGraphTensorData = results[layerWeightTensors[i]]!
@@ -422,7 +392,6 @@ class MLP3D : MLP2D {
     }
     private func interpolate2D(lowerLeftDiffTensor: MPSGraphTensor, oneMinusLowerLeftDiffTensor: MPSGraphTensor, lowerLeftWeightTensor: MPSGraphTensor, lowerRightWeightTensor: MPSGraphTensor, upperLeftWeightTensor: MPSGraphTensor, upperRightWeightTensor: MPSGraphTensor, dimension: Int) -> MPSGraphTensor {
         let lowerLeftDiffXTensor = graph.sliceTensor(lowerLeftDiffTensor, dimension: dimension, start: 0, length: 1, name: nil)
-        //print("Lower left diff X Shape: \(lowerLeftDiffXTensor.shape![0]) \(lowerLeftDiffXTensor.shape![1])")
         let lowerLeftDiffYTensor = graph.sliceTensor(lowerLeftDiffTensor, dimension: dimension, start: 1, length: 1, name: nil)
         let oneMinusLowerLeftDiffXTensor = graph.sliceTensor(oneMinusLowerLeftDiffTensor, dimension: dimension, start: 0, length: 1, name: nil)
         let oneMinusLowerLeftDiffYTensor = graph.sliceTensor(oneMinusLowerLeftDiffTensor, dimension: dimension, start: 1, length: 1, name: nil)
@@ -453,7 +422,6 @@ class MLP3D : MLP2D {
             let hashTableSizeData = Data(bytes: &hashTableSize, count: MemoryLayout<Int>.size)
             let hashTableSizeTensor = graph.constant(hashTableSizeData, shape: [1], dataType: .int32)
             hashTableSizeTensors.append(hashTableSizeTensor)
-            print("Level \(i): \(hashTableSize) elements")
             var weightData: Data
             if (initialHashTableWeights == nil) {
                 var arr: [Float] = []
@@ -468,17 +436,13 @@ class MLP3D : MLP2D {
             }
             
             let weightTensor = graph.variable(with: weightData, shape: [hashTableSize as NSNumber, 2 as NSNumber], dataType: .float32, name: nil)
-//            let weightMomentumTensor = graph.variable(with: weightData, shape: [resolution as NSNumber, 2 as NSNumber], dataType: .float32, name: nil)
-//            let weightVelocityTensor = graph.variable(with: weightData, shape: [resolution as NSNumber, 2 as NSNumber], dataType: .float32, name: nil)
             hashTableWeightTensors.append(weightTensor)
             variableTensors.append(weightTensor)
-//            momentumTensors[weightTensor] = weightMomentumTensor
-//            velocityTensors[weightTensor] = weightVelocityTensor
         }
         hashTableInitialized = true
     }
     
-    func invokeHashTable(inputTensor: MPSGraphTensor?, dimension: Int) -> MPSGraphTensor {
+    override func invokeHashTable(inputTensor: MPSGraphTensor?, dimension: Int) -> MPSGraphTensor {
         assert(hashTableInitialized)
         let prime1Data = Data(bytes: &prime1, count: MemoryLayout<Int>.size)
         let prime1Tensor = graph.constant(prime1Data, shape: [1], dataType: .int32)
@@ -528,484 +492,7 @@ class MLP3D : MLP2D {
             interpolatedWeightTensors.append(interpolatedWeightTensor)
         }
         let activationTensor = graph.concatTensors(interpolatedWeightTensors, dimension: dimension, name: nil)
-        //print("Hash table activation shape: [\(activationTensor.shape![0]),\(activationTensor.shape![1])]")
         return activationTensor
-    }
-}
-
-let rayThreshold: Double = -log(0.35)
-
-class NeRFCamera : MLP3D {
-    var numTrainingImages: Int
-    var maxSteps: Int
-    var maxT: Double
-    var trainCameraParameters: Bool = false
-    var deltaTPlaceholderTensor: MPSGraphTensor? = nil
-    var currentCameraPos: [[Float]] = []
-    var currentCameraRotation: [[Float]] = []
-    var cameraPosVarTensors: [MPSGraphTensor] = []
-    var cameraRotationVarTensors: [MPSGraphTensor] = []
-    var imageTargetTrainingOps: [[MPSGraphOperation]] = []
-    var imageTargetTrainingTensors: [[MPSGraphTensor]] = []
-    var depthMapTensor: MPSGraphTensor? = nil
-    var minWorldBound: [Float] = []
-    var minWorldBoundTensor: MPSGraphTensor? = nil
-    var worldBoundLengthTensor: MPSGraphTensor? = nil
-    var worldBoundLength: Float
-    init(labelSize: Int, numTrainingImages: Int, maxSteps: Int, maxT: Double, minWorldBound: [Float], worldBoundLength: Double, trainCameraParameters: Bool) {
-        self.trainCameraParameters = trainCameraParameters
-        self.numTrainingImages = numTrainingImages
-        self.maxSteps = maxSteps
-        self.maxT = maxT
-        self.minWorldBound = minWorldBound
-        self.worldBoundLength = Float(worldBoundLength)
-        super.init(inputShape: [-1, maxSteps as NSNumber, 3], labelSize: labelSize)
-        worldBoundLengthTensor = graph.constant(worldBoundLength, dataType: .float32)
-        let minWorldBoundData = Data(bytes: self.minWorldBound, count: 3*MemoryLayout<Float>.size)
-        minWorldBoundTensor = graph.constant(minWorldBoundData, shape: [3], dataType: .float32)
-        deltaTPlaceholderTensor = graph.placeholder(shape: [maxSteps as NSNumber], dataType: .float32, name: nil)
-        var initCameraPos: [Float] = [0.0, 0.0, 0.0]
-        let initCameraPosData = Data(bytes: &initCameraPos, count: MemoryLayout<Float>.size*initCameraPos.count)
-        var initCameraRotation: [Float] = [1.0, 0.0, 0.0,
-                                           0.0, 1.0, 0.0,
-                                           0.0, 0.0, 1.0]
-        let initCameraRotationData = Data(bytes: &initCameraRotation, count: MemoryLayout<Float>.size*initCameraRotation.count)
-        var initCameraAngle: Float = 0.0
-        let initCameraAngleData = Data(bytes: &initCameraAngle, count: MemoryLayout<Float>.size)
-        for _ in 0..<numTrainingImages {
-            cameraPosVarTensors.append(graph.variable(with: initCameraPosData, shape: [3], dataType: .float32, name: nil))
-            cameraRotationVarTensors.append(graph.variable(with: initCameraRotationData, shape: [3,3], dataType: .float32, name: nil))
-            currentCameraPos.append(initCameraPos)
-            currentCameraRotation.append(initCameraRotation)
-        }
-    }
-    func loadCameraParameters(weights: CodableWeights) {
-        assert(weights.cameraPos.count == weights.cameraMatrix.count)
-        assert(weights.cameraPos.count == numTrainingImages)
-        for i in 0..<weights.cameraPos.count {
-            var cameraPos = weights.cameraPos[i]
-            let cameraPosData = Data(bytes: &cameraPos, count: MemoryLayout<Float>.size*cameraPos.count)
-            cameraPosVarTensors[i] = graph.variable(with: cameraPosData, shape: [3], dataType: .float32, name: nil)
-            var cameraMatrix = weights.cameraMatrix[i]
-            let cameraMatrixData = Data(bytes: &cameraMatrix, count: MemoryLayout<Float>.size*cameraMatrix.count)
-            cameraRotationVarTensors[i] = graph.variable(with: cameraMatrixData, shape: [3,3], dataType: .float32, name: nil)
-        }
-    }
-    override func finalize(inputTensor: MPSGraphTensor?) {
-        for i in 0..<numTrainingImages {
-            let ops = getImageTrainingOperations(imageIndex: i)
-            imageTargetTrainingTensors.append(ops.0)
-            imageTargetTrainingOps.append(ops.1)
-        }
-        var activationTensor: MPSGraphTensor = inputsPlaceholderTensor
-        if (hashTableInitialized) {
-            activationTensor = invokeHashTable(inputTensor: nil, dimension: 2)
-            print("Hash table activation shape: [\(activationTensor.shape![0]),\(activationTensor.shape![1]),\(activationTensor.shape![2])]")
-        } else {
-            activationTensor = frequencyEncoding(inputTensor: inputsPlaceholderTensor)
-        }
-        //var dirModifiedTensor = graph.reshape(cameraDirPlaceholderTensor!, shape: [-1, 1, 3], name: nil)
-        //dirModifiedTensor = graph.broadcast(dirModifiedTensor, shape: [-1, maxSteps as NSNumber, 3], name: nil)
-        //let mlpInputTensor = graph.concatTensors([activationTensor, dirModifiedTensor], dimension: 2, name: nil)
-        activationTensor = invokeMLP(inputTensor: activationTensor)
-        //activationTensor = invokeMLP(inputTensor: mlpInputTensor)
-        print("MLP activation shape: [\(activationTensor.shape![0]),\(activationTensor.shape![1]),\(activationTensor.shape![2])]")
-        var densityTensor = graph.sliceTensor(activationTensor, dimension: 2, start: 0, length: 1, name: nil)
-        var colorTensor = graph.sliceTensor(activationTensor, dimension: 2, start: 1, length: 3, name: nil)
-        let deltaReshapeTensor = graph.reshape(deltaTPlaceholderTensor!, shape: [1,maxSteps as NSNumber, 1], name: nil)
-        let scaledDensityTensor = graph.multiplication(densityTensor, deltaReshapeTensor, name: nil)
-        print("scaledDensityTensor shape: [\(scaledDensityTensor.shape![0]),\(scaledDensityTensor.shape![1]),\(scaledDensityTensor.shape![2])]")
-        var transmittanceTensor = graph.cumulativeSum(scaledDensityTensor, axis: 1, exclusive: true, reverse: false, name: nil)
-        print("transmittanceTensor shape: [\(transmittanceTensor.shape![0]), \(transmittanceTensor.shape![1]), \(transmittanceTensor.shape![2])]")
-        transmittanceTensor = graph.negative(with: scaledDensityTensor, name: nil)
-        transmittanceTensor = graph.exponent(with: transmittanceTensor, name: nil)
-        var colorScaleTensor = graph.negative(with: scaledDensityTensor, name: nil)
-        colorScaleTensor = graph.exponent(with: colorScaleTensor, name: nil)
-        colorScaleTensor = graph.subtraction(graph.constant(1.0, dataType: .float32), colorScaleTensor, name: nil)
-        colorScaleTensor = graph.multiplication(transmittanceTensor, colorScaleTensor, name: nil)
-        let unsummedColorsTensor = graph.multiplication(colorScaleTensor, colorTensor, name: nil)
-        print("unsummedColorsTensor shape: [\(unsummedColorsTensor.shape![0]), \(unsummedColorsTensor.shape![1]), \(unsummedColorsTensor.shape![2])]")
-        var approxColorTensor = graph.reductionSum(with: unsummedColorsTensor, axis: 1, name: nil)
-        //var approxColor = graph.reductionSum(with: colorTensor, axis: 1, name: nil)
-        approxColorTensor = graph.reshape(approxColorTensor, shape: [-1, 3], name: nil)
-        targetInferenceTensor = approxColorTensor
-        //depthMapTensor = getDepthMapTensor2(rayThreshold: rayThreshold)
-        lossTensor = graph.subtraction(approxColorTensor, labelsPlaceholderTensor, name: nil)
-        lossTensor = graph.multiplication(lossTensor!, lossTensor!, name: nil)
-        lossTensor = graph.reductionSum(with: lossTensor!, axis: 0, name: nil)
-        lossTensor = graph.reductionSum(with: lossTensor!, axis: 1, name: nil)
-        targetTrainingTensors = [lossTensor!]
-        let gradientTensors = graph.gradients(of: lossTensor!, with: variableTensors, name: nil)
-        for variableTensor in variableTensors {
-            let updateTensor = graph.stochasticGradientDescent(learningRate: graph.constant(0.001, dataType: .float32), values: variableTensor, gradient: gradientTensors[variableTensor]!, name: nil) //stochastic gradient descent for now, change to adam later
-            let assignOp = graph.assign(variableTensor, tensor: updateTensor, name: nil)
-            targetTrainingOps.append(assignOp)
-        }
-    }
-
-    func rotateTensor(inputTensor: MPSGraphTensor, angleTensor: MPSGraphTensor, axisMatrixTensor: MPSGraphTensor) -> MPSGraphTensor {
-        
-        
-        let sinAngleTensor = graph.sin(with: angleTensor, name: nil)
-        let oneMinusCosAngleTensor = graph.subtraction(graph.constant(1.0, dataType: .float32), graph.cos(with: angleTensor, name: nil), name: nil)
-        var sinSkewMatrix = graph.multiplication(sinAngleTensor, axisMatrixTensor, name: nil)
-        sinSkewMatrix = graph.reshape(sinSkewMatrix, shape: [1,3,3], name: nil)
-        let sinSkewMatrixMult = graph.matrixMultiplication(primary: inputTensor, secondary: sinSkewMatrix, name: nil)
-        var result = graph.addition(inputTensor, sinSkewMatrixMult, name: nil)
-        let cosSkewMatrix = graph.multiplication(oneMinusCosAngleTensor, axisMatrixTensor, name: nil)
-        var matrixSquared = graph.matrixMultiplication(primary: cosSkewMatrix, secondary: axisMatrixTensor, name: nil)
-        matrixSquared = graph.reshape(matrixSquared, shape: [1,3,3], name: nil)
-        result = graph.addition(result, graph.matrixMultiplication(primary: inputTensor, secondary: matrixSquared, name: nil), name: nil)
-        return result
-    }
-    func frequencyEncoding(inputTensor: MPSGraphTensor) -> MPSGraphTensor {
-        let x = graph.sliceTensor(inputTensor, dimension: 2, start: 0, length: 1, name: nil)
-        let y = graph.sliceTensor(inputTensor, dimension: 2, start: 1, length: 1, name: nil)
-        let z = graph.sliceTensor(inputTensor, dimension: 2, start: 2, length: 1, name: nil)
-        var tensorElements: [MPSGraphTensor] = []
-        for i in 0..<5 {
-            let powTensor = graph.power(graph.constant(2.0, dataType: .float32), graph.constant(Double(i), dataType: .float32), name: nil)
-            let piTensor = graph.constant(Double.pi, dataType: .float32)
-            var multTensor = graph.multiplication(powTensor, piTensor, name: nil)
-            multTensor = graph.multiplication(multTensor, x, name: nil)
-            let sinTensor = graph.sin(with: multTensor, name: nil)
-            let cosTensor = graph.cos(with: multTensor, name: nil)
-            tensorElements.append(sinTensor)
-            tensorElements.append(cosTensor)
-        }
-        for i in 0..<5 {
-            let powTensor = graph.power(graph.constant(2.0, dataType: .float32), graph.constant(Double(i), dataType: .float32), name: nil)
-            let piTensor = graph.constant(Double.pi, dataType: .float32)
-            var multTensor = graph.multiplication(powTensor, piTensor, name: nil)
-            multTensor = graph.multiplication(multTensor, y, name: nil)
-            let sinTensor = graph.sin(with: multTensor, name: nil)
-            let cosTensor = graph.cos(with: multTensor, name: nil)
-            tensorElements.append(sinTensor)
-            tensorElements.append(cosTensor)
-        }
-        for i in 0..<6 {
-            let powTensor = graph.power(graph.constant(2.0, dataType: .float32), graph.constant(Double(i), dataType: .float32), name: nil)
-            let piTensor = graph.constant(Double.pi, dataType: .float32)
-            var multTensor = graph.multiplication(powTensor, piTensor, name: nil)
-            multTensor = graph.multiplication(multTensor, z, name: nil)
-            let sinTensor = graph.sin(with: multTensor, name: nil)
-            let cosTensor = graph.cos(with: multTensor, name: nil)
-            tensorElements.append(sinTensor)
-            tensorElements.append(cosTensor)
-        }
-        let resultTensor = graph.concatTensors(tensorElements, dimension: 2, name: nil)
-        return resultTensor
-    }
-    func getImageTrainingOperations(imageIndex: Int) -> ([MPSGraphTensor], [MPSGraphOperation]) {
-        assert(trainCameraParameters)
-        let cameraPosTensor = cameraPosVarTensors[imageIndex]
-        //let inputTensorRotated = rotateTensor(inputTensor: inputsPlaceholderTensor, angleTensor: angleTensor, axisMatrixTensor: axisMatrixTensor)
-        let inputTensorRotated = graph.matrixMultiplication(primary: inputsPlaceholderTensor, secondary: cameraRotationVarTensors[imageIndex], name: nil)
-        var modifiedInputTensor = graph.addition(cameraPosTensor, inputTensorRotated, name: nil)
-        modifiedInputTensor = graph.subtraction(modifiedInputTensor, minWorldBoundTensor!, name: nil)
-        modifiedInputTensor = graph.division(modifiedInputTensor, worldBoundLengthTensor!, name: nil)
-        //var dirModifiedTensor = graph.reshape(cameraDirPlaceholderTensor!, shape: [-1, 1, 3], name: nil)
-        //dirModifiedTensor = graph.broadcast(dirModifiedTensor, shape: [-1, maxSteps as NSNumber, 3], name: nil)
-        //let mlpInputTensor = graph.concatTensors([activationTensor, dirModifiedTensor], dimension: 2, name: nil)
-        //var activationTensor: MPSGraphTensor = modifiedInputTensor
-        var activationTensor: MPSGraphTensor = frequencyEncoding(inputTensor: modifiedInputTensor)
-//        if (hashTableInitialized) {
-//            activationTensor = invokeHashTable(inputTensor: modifiedInputTensor, dimension: 2)
-//            print("Hash table activation shape: [\(activationTensor.shape![0]),\(activationTensor.shape![1]),\(activationTensor.shape![2])]")
-//        }
-        activationTensor = invokeMLP(inputTensor: activationTensor)
-        //activationTensor = invokeMLP(inputTensor: mlpInputTensor)
-        //print("MLP activation shape: [\(activationTensor.shape![0]),\(activationTensor.shape![1]),\(activationTensor.shape![2])]")
-        var densityTensor = graph.sliceTensor(activationTensor, dimension: 2, start: 0, length: 1, name: nil)
-        var colorTensor = graph.sliceTensor(activationTensor, dimension: 2, start: 1, length: 3, name: nil)
-        let deltaReshapeTensor = graph.reshape(deltaTPlaceholderTensor!, shape: [1,maxSteps as NSNumber, 1], name: nil)
-        let scaledDensityTensor = graph.multiplication(densityTensor, deltaReshapeTensor, name: nil)
-        //print("scaledDensityTensor shape: [\(scaledDensityTensor.shape![0]),\(scaledDensityTensor.shape![1]),\(scaledDensityTensor.shape![2])]")
-        var transmittanceTensor = graph.cumulativeSum(scaledDensityTensor, axis: 1, exclusive: true, reverse: false, name: nil)
-        //print("transmittanceTensor shape: [\(transmittanceTensor.shape![0]), \(transmittanceTensor.shape![1]), \(transmittanceTensor.shape![2])]")
-        transmittanceTensor = graph.negative(with: scaledDensityTensor, name: nil)
-        transmittanceTensor = graph.exponent(with: transmittanceTensor, name: nil)
-        var colorScaleTensor = graph.negative(with: scaledDensityTensor, name: nil)
-        colorScaleTensor = graph.exponent(with: colorScaleTensor, name: nil)
-        colorScaleTensor = graph.subtraction(graph.constant(1.0, dataType: .float32), colorScaleTensor, name: nil)
-        colorScaleTensor = graph.multiplication(transmittanceTensor, colorScaleTensor, name: nil)
-        let unsummedColorsTensor = graph.multiplication(colorScaleTensor, colorTensor, name: nil)
-        //print("unsummedColorsTensor shape: [\(unsummedColorsTensor.shape![0]), \(unsummedColorsTensor.shape![1]), \(unsummedColorsTensor.shape![2])]")
-        var approxColorTensor = graph.reductionSum(with: unsummedColorsTensor, axis: 1, name: nil)
-        //var approxColor = graph.reductionSum(with: colorTensor, axis: 1, name: nil)
-        approxColorTensor = graph.reshape(approxColorTensor, shape: [-1, 3], name: nil)
-        targetInferenceTensor = approxColorTensor
-        var loss = graph.subtraction(approxColorTensor, labelsPlaceholderTensor, name: nil)
-        loss = graph.multiplication(loss, loss, name: nil)
-        loss = graph.reductionSum(with: loss, axis: 0, name: nil)
-        loss = graph.reductionSum(with: loss, axis: 1, name: nil)
-//        let squaredMatrix = graph.multiplication(cameraRotationVarTensors[imageIndex], cameraRotationVarTensors[imageIndex], name: nil)
-//        var matrixReduction = graph.reductionSum(with: squaredMatrix, axis: 0, name: nil)
-//        matrixReduction = graph.reductionSum(with: matrixReduction, axis: 1, name: nil)
-//        matrixReduction = graph.squeeze(matrixReduction, name: nil)
-//        loss = graph.addition(loss, matrixReduction, name: nil)
-        if (imageIndex != 0) {
-            let cameraMatrixTranspose = graph.transposeTensor(cameraRotationVarTensors[imageIndex], dimension: 0, withDimension: 1, name: nil)
-            let cameraMatrixMult = graph.matrixMultiplication(primary: cameraRotationVarTensors[imageIndex], secondary: cameraMatrixTranspose, name: nil)
-            var identityMatrix: [Float] = [1.0, 0.0, 0.0,
-                                           0.0, 1.0, 0.0,
-                                           0.0, 0.0, 1.0]
-            let identityMatrixData = Data(bytes: &identityMatrix, count: identityMatrix.count*MemoryLayout<Float>.size)
-            let identityMatrixTensor = graph.constant(identityMatrixData, shape: [3,3], dataType: .float32)
-            var matrixSub = graph.subtraction(cameraMatrixMult, identityMatrixTensor, name: nil)
-            //matrixSub = graph.multiplication(matrixSub, matrixSub, name: nil)
-            matrixSub = graph.absolute(with: matrixSub, name: nil)
-            var matrixReduction = graph.reductionSum(with: matrixSub, axis: 0, name: nil)
-            matrixReduction = graph.reductionSum(with: matrixReduction, axis: 1, name: nil)
-            matrixReduction = graph.squeeze(matrixReduction, name: nil)
-            matrixReduction = graph.multiplication(graph.constant(0.001, dataType: .float32), matrixReduction, name: nil)
-            loss = graph.addition(loss, matrixReduction, name: nil)
-        }
-        let targets: [MPSGraphTensor] = [loss, cameraPosVarTensors[imageIndex],
-                                         cameraRotationVarTensors[imageIndex]]
-        var trainingOps: [MPSGraphOperation] = []
-        var gradientInputTensors: [MPSGraphTensor] = []
-        if (imageIndex != 0) {
-            gradientInputTensors.append(cameraRotationVarTensors[imageIndex])
-            gradientInputTensors.append(cameraPosVarTensors[imageIndex])
-        }
-        gradientInputTensors.append(contentsOf: layerWeightTensors)
-        gradientInputTensors.append(contentsOf: layerBiasTensors)
-        let gradientTensors = graph.gradients(of: loss, with: gradientInputTensors, name: nil)
-        for variableTensor in gradientInputTensors {
-            let updateTensor = graph.stochasticGradientDescent(learningRate: graph.constant(0.001, dataType: .float32), values: variableTensor, gradient: gradientTensors[variableTensor]!, name: nil) //stochastic gradient descent for now, change to adam later
-            let assignOp = graph.assign(variableTensor, tensor: updateTensor, name: nil)
-            trainingOps.append(assignOp)
-        }
-        return (targets, trainingOps)
-    }
-    func trainCameraParameterDoubleBufferedDynamic(imageIndex: Int, imageWidth: Int, imageHeight: Int, inputsLabels: [([Float], [Float])], numEpochs: Int, batchSize: Int, focalLength: Float) {
-        //assert(!hashTableInitialized)
-        assert(inputsLabels.count == imageWidth*imageHeight)
-        var shuffledInputsLabels = inputsLabels
-        shuffledInputsLabels.shuffle()
-        let mpsDevice = MPSGraphDevice(mtlDevice: device!)
-        let execDescriptor = MPSGraphExecutionDescriptor()
-        execDescriptor.completionHandler = { (resultsDictionary, nil) in
-            self.doubleBufferingSemaphore.signal()
-            let resultLoss = resultsDictionary[self.imageTargetTrainingTensors[imageIndex][0]]
-            var loss: [Float] = Array(repeating: 0.0, count: 1)
-            resultLoss!.mpsndarray().readBytes(&loss, strideBytes: nil)
-            self.loss += loss[0]
-            var resultCameraPos: [Float] = Array(repeating: 0.0, count: 3)
-            var resultCameraMatrix: [Float] = Array(repeating: 0.0, count: 9)
-            resultsDictionary[self.cameraPosVarTensors[imageIndex]]!.mpsndarray().readBytes(&resultCameraPos, strideBytes: nil)
-            resultsDictionary[self.cameraRotationVarTensors[imageIndex]]!.mpsndarray().readBytes(&resultCameraMatrix, strideBytes: nil)
-            self.currentCameraPos[imageIndex] = resultCameraPos
-            self.currentCameraRotation[imageIndex] = resultCameraMatrix
-        }
-        var deltaValues: [Float] = []
-        var currentT: Float = 1.0
-        for i in 0..<maxSteps {
-            let b = exp( (log(maxT) - log(1.0)) / Double(maxSteps))
-            let newT = Float(1.0*pow(b, Double(i+1)))
-            let deltaT = newT-currentT
-            deltaValues.append(deltaT)
-            currentT = newT
-            print("t[\(i)]: \(currentT), deltaT[\(i)]: \(deltaT)")
-        }
-        let deltaValuesData = Data(bytes: &deltaValues, count: deltaValues.count*MemoryLayout<Float>.size)
-        let deltaValuesTensorData = MPSGraphTensorData(device: mpsDevice, data: deltaValuesData, shape: [maxSteps as NSNumber], dataType: .float32)
-        
-        for i in 1...numEpochs {
-            loss = 0.0
-            var firstIndex = 0
-            while (firstIndex < shuffledInputsLabels.count) {
-                autoreleasepool {
-                    var inputBatch: [Float] = []
-                    var labelBatch: [Float] = []
-                    let curBatchSize: Int = min(batchSize, shuffledInputsLabels.count-firstIndex)
-
-                    for pair in inputsLabels[firstIndex..<firstIndex+curBatchSize] {
-                        let rayDir = simd_float3(x: pair.0[0] - 0.5, y: pair.0[1] - 0.5, z: -focalLength)
-                        let raySteps = castRay(cameraDir: rayDir, cameraPos: simd_float3(x: 0.0, y: 0.0, z: 0.0), numSteps: maxSteps, minWorldBound: simd_float3(x: minWorldBound[0], y: minWorldBound[1], z: minWorldBound[2]), maxWorldBound: simd_float3(x: minWorldBound[0] + worldBoundLength, y: minWorldBound[1] + worldBoundLength, z: minWorldBound[2] + worldBoundLength), deltaValues: deltaValues)
-                        inputBatch.append(contentsOf: raySteps)
-                    }
-                    
-                    for pair in inputsLabels[firstIndex..<firstIndex+curBatchSize] {
-                        for elem in pair.1 {
-                            labelBatch.append(elem)
-                        }
-                    }
-                    
-                    doubleBufferingSemaphore.wait()
-                    let inputTensorDataTemp = Data(bytes: &inputBatch, count: MemoryLayout<Float>.size*inputBatch.count)
-                    let inputTensorDataCurrent = MPSGraphTensorData(device: mpsDevice, data: inputTensorDataTemp, shape: [curBatchSize as NSNumber, maxSteps as NSNumber, 3], dataType: .float32)
-                    //print(inputTensorData[currentTensorDataIndex].shape)
-                    let labelTensorDataTemp = Data(bytes: &labelBatch, count: MemoryLayout<Float>.size*labelBatch.count)
-                    let labelTensorDataCurrent = MPSGraphTensorData(device: mpsDevice, data: labelTensorDataTemp, shape: [curBatchSize as NSNumber, inputsLabels[0].1.count as NSNumber], dataType: .float32)
-                    graph.runAsync(with: commandQueue!, feeds: [inputsPlaceholderTensor: inputTensorDataCurrent, labelsPlaceholderTensor: labelTensorDataCurrent, deltaTPlaceholderTensor!: deltaValuesTensorData], targetTensors: imageTargetTrainingTensors[imageIndex], targetOperations: imageTargetTrainingOps[imageIndex], executionDescriptor: execDescriptor)
-                }
-                firstIndex += batchSize
-            }
-            print("Loss: \(loss)")
-            shuffledInputsLabels.shuffle()
-        }
-    }
-    func trainDoubleBufferedDynamic(imageWidth: Int, imageHeight: Int, inputData: [[Float]], labelData: [[Float]], numLabels: Int, numEpochs: Int, batchSize: Int, cameraPos: simd_float3, cameraAxis: simd_float3, cameraAngle: Float, focalLength: Float, maxT: Double, minWorldBound: simd_float3, maxWorldBound: simd_float3) {
-        assert(inputData.count == labelData.count)
-        assert(inputData.count == numLabels)
-        assert(inputData.count == imageWidth*imageHeight)
-        assert(inputData[0].count == 2)
-        assert(labelData[0].count == labelSize)
-        var shuffledIndices = inputData.indices.shuffled()
-        var inputDataShuffled = shuffledIndices.map{inputData[$0]}
-        var labelDataShuffled = shuffledIndices.map{labelData[$0]}
-        let mpsDevice = MPSGraphDevice(mtlDevice: device!)
-        let execDescriptor = MPSGraphExecutionDescriptor()
-        execDescriptor.completionHandler = { (resultsDictionary, nil) in
-            self.doubleBufferingSemaphore.signal()
-            if (self.lossTensor != nil) {
-                let result = resultsDictionary[self.lossTensor!]
-                var loss: [Float] = Array(repeating: 0.0, count: 1)
-                result!.mpsndarray().readBytes(&loss, strideBytes: nil)
-                self.loss += loss[0]
-            }
-        }
-        var deltaValues: [Float] = []
-        var currentT: Float = 1.0
-        for i in 0..<maxSteps {
-            let b = exp( (log(maxT) - log(1.0)) / Double(maxSteps))
-            let newT = Float(1.0*pow(b, Double(i+1)))
-            let deltaT = newT-currentT
-            deltaValues.append(deltaT)
-            currentT = newT
-            print("t[\(i)]: \(currentT), deltaT[\(i)]: \(deltaT)")
-        }
-        let deltaValuesData = Data(bytes: &deltaValues, count: deltaValues.count*MemoryLayout<Float>.size)
-        let deltaValuesTensorData = MPSGraphTensorData(device: mpsDevice, data: deltaValuesData, shape: [maxSteps as NSNumber], dataType: .float32)
-        for _ in 1...numEpochs {
-            loss = 0.0
-            var firstIndex = 0
-            while (firstIndex < numLabels) {
-                autoreleasepool {
-                    var inputBatch: [Float] = []
-                    var labelBatch: [Float] = []
-                    let curBatchSize: Int = min(batchSize, numLabels-firstIndex)
-
-                    for arr in inputDataShuffled[firstIndex..<firstIndex+curBatchSize] {
-                        let rayDir = simd_float3(x: arr[0] - 0.5, y: arr[1] - 0.5, z: -focalLength)
-                        let rayDirRot = rotateVector(dir: rayDir, axis: cameraAxis, angle: cameraAngle)
-                        let raySteps = castRay(cameraDir: rayDirRot, cameraPos: cameraPos, numSteps: maxSteps, minWorldBound: minWorldBound, maxWorldBound: maxWorldBound, deltaValues: deltaValues)
-                        inputBatch.append(contentsOf: raySteps)
-                    }
-                    
-                    for arr in labelDataShuffled[firstIndex..<firstIndex+curBatchSize] {
-                        for elem in arr {
-                            labelBatch.append(elem)
-                        }
-                    }
-                    
-                    doubleBufferingSemaphore.wait()
-                    let inputTensorDataTemp = Data(bytes: &inputBatch, count: MemoryLayout<Float>.size*inputBatch.count)
-                    let inputTensorDataCurrent = MPSGraphTensorData(device: mpsDevice, data: inputTensorDataTemp, shape: [curBatchSize as NSNumber, maxSteps as NSNumber, 3], dataType: .float32)
-                    //print(inputTensorData[currentTensorDataIndex].shape)
-                    let labelTensorDataTemp = Data(bytes: &labelBatch, count: MemoryLayout<Float>.size*labelBatch.count)
-                    let labelTensorDataCurrent = MPSGraphTensorData(device: mpsDevice, data: labelTensorDataTemp, shape: [curBatchSize as NSNumber, labelData[0].count as NSNumber], dataType: .float32)
-                    graph.runAsync(with: commandQueue!, feeds: [inputsPlaceholderTensor: inputTensorDataCurrent, labelsPlaceholderTensor: labelTensorDataCurrent, deltaTPlaceholderTensor!: deltaValuesTensorData], targetTensors: targetTrainingTensors, targetOperations: targetTrainingOps, executionDescriptor: execDescriptor)
-                }
-                firstIndex += batchSize
-            }
-            shuffledIndices.shuffle()
-            inputDataShuffled = shuffledIndices.map{inputData[$0]}
-            labelDataShuffled = shuffledIndices.map{labelData[$0]}
-            print("Loss: \(loss)")
-        }
-        
-    }
-    
-    func getInferenceDepthMapPiecemealDynamic(imageWidth: Int, imageHeight: Int, inputData: [[Float]], batchSize: Int, cameraPos: simd_float3, cameraAxis: simd_float3, cameraAngle: Float, focalLength: Float, maxT: Double, minWorldBound: simd_float3, maxWorldBound: simd_float3, getWeights: Bool, resultsOut: inout [MPSGraphTensor: MPSGraphTensorData]) -> ([Float]) {
-        assert(inputData.count == imageWidth*imageHeight)
-        assert(inputData[0].count == 2)
-        let mpsDevice = MPSGraphDevice(mtlDevice: device!)
-        var results: [Float] = []
-        //var depthResults: [Float] = []
-        var deltaValues: [Float] = []
-        var currentT: Float = 1.0
-        for i in 0..<maxSteps {
-            let b = exp( (log(maxT) - log(1.0)) / Double(maxSteps))
-            let newT = Float(1.0*pow(b, Double(i+1)))
-            let deltaT = newT-currentT
-            deltaValues.append(deltaT)
-            currentT = newT
-            //print("t[\(i)]: \(currentT), deltaT[\(i)]: \(deltaT)")
-        }
-        let deltaValuesData = Data(bytes: &deltaValues, count: deltaValues.count*MemoryLayout<Float>.size)
-        let deltaValuesTensorData = MPSGraphTensorData(device: mpsDevice, data: deltaValuesData, shape: [maxSteps as NSNumber], dataType: .float32)
-        var firstIndex = 0
-        while (firstIndex < inputData.count) {
-            autoreleasepool {
-                var inputBatch: [Float] = []
-                var dirBatch: [Float] = []
-                let curBatchSize: Int = min(batchSize, inputData.count-firstIndex)
-
-                for arr in inputData[firstIndex..<firstIndex+curBatchSize] {
-                    let rayDir = simd_float3(x: arr[0] - 0.5, y: arr[1] - 0.5, z: -focalLength)
-                    let rayDirRot = rotateVector(dir: rayDir, axis: cameraAxis, angle: cameraAngle)
-                    let raySteps = castRay(cameraDir: rayDirRot, cameraPos: cameraPos, numSteps: maxSteps, minWorldBound: minWorldBound, maxWorldBound: maxWorldBound, deltaValues: deltaValues)
-                    inputBatch.append(contentsOf: raySteps)
-                    let rayDirNormalized = simd_normalize(rayDir)
-                    dirBatch.append(rayDirNormalized.x)
-                    dirBatch.append(rayDirNormalized.y)
-                    dirBatch.append(rayDirNormalized.z)
-                }
-                let inputTensorDataTemp = Data(bytes: &inputBatch, count: MemoryLayout<Float>.size*inputBatch.count)
-                let inputTensorDataCurrent = MPSGraphTensorData(device: mpsDevice, data: inputTensorDataTemp, shape: [curBatchSize as NSNumber, maxSteps as NSNumber, 3], dataType: .float32)
-                let dirTensorDataTemp = Data(bytes: &dirBatch, count: MemoryLayout<Float>.size*dirBatch.count)
-                let dirTensorDataCurrent = MPSGraphTensorData(device: mpsDevice, data: dirTensorDataTemp, shape: [curBatchSize as NSNumber, 3], dataType: .float32)
-                var targetTensors: [MPSGraphTensor] = [targetInferenceTensor!]
-                if (getWeights) {
-                    targetTensors.append(contentsOf: layerWeightTensors)
-                    targetTensors.append(contentsOf: layerBiasTensors)
-                    targetTensors.append(contentsOf: hashTableWeightTensors)
-                }
-                let resultDict = graph.run(with: commandQueue!, feeds: [inputsPlaceholderTensor: inputTensorDataCurrent, deltaTPlaceholderTensor!: deltaValuesTensorData], targetTensors: targetTensors, targetOperations: nil)
-                //let depthResultsDict = graph.run(with: commandQueue!, feeds: [inputsPlaceholderTensor: inputTensorDataCurrent, cameraDirPlaceholderTensor!: dirTensorDataCurrent, deltaTPlaceholderTensor!: deltaValuesTensorData], targetTensors: [depthMapTensor!], targetOperations: nil)
-                resultsOut = resultDict
-                var resultArr: [Float] = Array(repeating: 0.0, count: curBatchSize*self.labelSize)
-                resultDict[targetInferenceTensor!]!.mpsndarray().readBytes(&resultArr, strideBytes: nil)
-                //var depthResultArr: [Float] = Array(repeating: 0.0, count: curBatchSize)
-                //depthResultsDict[depthMapTensor!]!.mpsndarray().readBytes(&depthResultArr, strideBytes: nil)
-                results.append(contentsOf: resultArr)
-                //depthResults.append(contentsOf: depthResultArr)
-            }
-            firstIndex += batchSize
-        }
-        //return (results, depthResults)
-        return results
-    }
-    override func getVariableData(results: [MPSGraphTensor: MPSGraphTensorData]) -> Data {
-        var weights = CodableWeights()
-        for i in 0..<layerWeightTensors.count {
-            var weightMatrix: [Float] = Array(repeating: 0.0, count: layers[i].numInputs*layers[i].numOutputs)
-            let tensorData: MPSGraphTensorData = results[layerWeightTensors[i]]!
-            tensorData.mpsndarray().readBytes(&weightMatrix, strideBytes: nil)
-            weights.weightMatrices.append(weightMatrix)
-        }
-        for i in 0..<layerBiasTensors.count {
-            var biasVector: [Float] = Array(repeating: 0.0, count: layers[i].numOutputs)
-            let tensorData: MPSGraphTensorData = results[layerBiasTensors[i]]!
-            tensorData.mpsndarray().readBytes(&biasVector, strideBytes: nil)
-            weights.biasVectors.append(biasVector)
-        }
-        for i in 0..<hashTableWeightTensors.count {
-            var hashTableWeights: [Float] = Array(repeating: 0.0, count: hashTableWeightTensors[i].shape![0].intValue*hashTableWeightTensors[i].shape![1].intValue)
-            let tensorData: MPSGraphTensorData = results[hashTableWeightTensors[i]]!
-            tensorData.mpsndarray().readBytes(&hashTableWeights, strideBytes: nil)
-            weights.hashTableWeights.append(hashTableWeights)
-        }
-        for i in 0..<numTrainingImages {
-            weights.cameraMatrix.append(currentCameraRotation[i])
-            weights.cameraPos.append(currentCameraPos[i])
-        }
-        let jsonEncoder = JSONEncoder()
-        let jsonData = try! jsonEncoder.encode(weights)
-        return jsonData
     }
 }
 
@@ -1028,21 +515,13 @@ class NeRF : MLP3D {
         var activationTensor: MPSGraphTensor = inputsPlaceholderTensor
         if (hashTableInitialized) {
             activationTensor = invokeHashTable(inputTensor: nil, dimension: 2)
-            print("Hash table activation shape: [\(activationTensor.shape![0]),\(activationTensor.shape![1]),\(activationTensor.shape![2])]")
         }
-        //var dirModifiedTensor = graph.reshape(cameraDirPlaceholderTensor!, shape: [-1, 1, 3], name: nil)
-        //dirModifiedTensor = graph.broadcast(dirModifiedTensor, shape: [-1, maxSteps as NSNumber, 3], name: nil)
-        //let mlpInputTensor = graph.concatTensors([activationTensor, dirModifiedTensor], dimension: 2, name: nil)
         activationTensor = invokeMLP(inputTensor: activationTensor)
-        //activationTensor = invokeMLP(inputTensor: mlpInputTensor)
-        print("MLP activation shape: [\(activationTensor.shape![0]),\(activationTensor.shape![1]),\(activationTensor.shape![2])]")
-        var densityTensor = graph.sliceTensor(activationTensor, dimension: 2, start: 0, length: 1, name: nil)
-        var colorTensor = graph.sliceTensor(activationTensor, dimension: 2, start: 1, length: 3, name: nil)
+        let densityTensor = graph.sliceTensor(activationTensor, dimension: 2, start: 0, length: 1, name: nil)
+        let colorTensor = graph.sliceTensor(activationTensor, dimension: 2, start: 1, length: 3, name: nil)
         let deltaReshapeTensor = graph.reshape(deltaTPlaceholderTensor!, shape: [1,maxSteps as NSNumber, 1], name: nil)
         let scaledDensityTensor = graph.multiplication(densityTensor, deltaReshapeTensor, name: nil)
-        print("scaledDensityTensor shape: [\(scaledDensityTensor.shape![0]),\(scaledDensityTensor.shape![1]),\(scaledDensityTensor.shape![2])]")
         var transmittanceTensor = graph.cumulativeSum(scaledDensityTensor, axis: 1, exclusive: true, reverse: false, name: nil)
-        print("transmittanceTensor shape: [\(transmittanceTensor.shape![0]), \(transmittanceTensor.shape![1]), \(transmittanceTensor.shape![2])]")
         transmittanceTensor = graph.negative(with: scaledDensityTensor, name: nil)
         transmittanceTensor = graph.exponent(with: transmittanceTensor, name: nil)
         var colorScaleTensor = graph.negative(with: scaledDensityTensor, name: nil)
@@ -1050,12 +529,10 @@ class NeRF : MLP3D {
         colorScaleTensor = graph.subtraction(graph.constant(1.0, dataType: .float32), colorScaleTensor, name: nil)
         colorScaleTensor = graph.multiplication(transmittanceTensor, colorScaleTensor, name: nil)
         let unsummedColorsTensor = graph.multiplication(colorScaleTensor, colorTensor, name: nil)
-        print("unsummedColorsTensor shape: [\(unsummedColorsTensor.shape![0]), \(unsummedColorsTensor.shape![1]), \(unsummedColorsTensor.shape![2])]")
         var approxColorTensor = graph.reductionSum(with: unsummedColorsTensor, axis: 1, name: nil)
-        //var approxColor = graph.reductionSum(with: colorTensor, axis: 1, name: nil)
         approxColorTensor = graph.reshape(approxColorTensor, shape: [-1, 3], name: nil)
         targetInferenceTensor = approxColorTensor
-        depthMapTensor = getDepthMapTensor2(rayThreshold: rayThreshold)
+        depthMapTensor = getDepthMapTensor()
         lossTensor = graph.subtraction(approxColorTensor, labelsPlaceholderTensor, name: nil)
         lossTensor = graph.multiplication(lossTensor!, lossTensor!, name: nil)
         lossTensor = graph.reductionSum(with: lossTensor!, axis: 0, name: nil)
@@ -1063,107 +540,20 @@ class NeRF : MLP3D {
         targetTrainingTensors = [lossTensor!]
         let gradientTensors = graph.gradients(of: lossTensor!, with: variableTensors, name: nil)
         for variableTensor in variableTensors {
-            let updateTensor = graph.stochasticGradientDescent(learningRate: graph.constant(0.001, dataType: .float32), values: variableTensor, gradient: gradientTensors[variableTensor]!, name: nil) //stochastic gradient descent for now, change to adam later
+            let updateTensor = graph.stochasticGradientDescent(learningRate: graph.constant(0.001, dataType: .float32), values: variableTensor, gradient: gradientTensors[variableTensor]!, name: nil)
             let assignOp = graph.assign(variableTensor, tensor: updateTensor, name: nil)
             targetTrainingOps.append(assignOp)
         }
     }
-    func getDepthMapTensor(deltaStepScale: Double, rayThreshold: Double, maxT: Double, depthInputTensor: MPSGraphTensor, cameraPosTensor: MPSGraphTensor) -> MPSGraphTensor {
-        let transmittanceThresholdTensor = graph.constant(rayThreshold, dataType: .float32)
-        let maxTTensor = graph.constant(maxT, dataType: .float32)
-        var maxStepsTensor = graph.constant(Double(maxSteps), dataType: .int32)
-        let whileBeforeBlock: MPSGraphWhileBeforeBlock = { [self] (inputTensors: [MPSGraphTensor], resultsTensor: NSMutableArray) -> MPSGraphTensor in
-            let rayPos = inputTensors[0]
-            let accumulatedTransmittanceTensor = inputTensors[1]
-            let iterationTensor = inputTensors[2]
-            let tTensor = inputTensors[3]
-            let rayDir = inputTensors[4]
-            resultsTensor.removeAllObjects()
-            resultsTensor.add(rayPos)
-            resultsTensor.add(accumulatedTransmittanceTensor)
-            resultsTensor.add(iterationTensor)
-            resultsTensor.add(tTensor)
-            resultsTensor.add(rayDir)
-            let minAccumulatedTransmittanceTensor = self.graph.reductionMinimum(with: accumulatedTransmittanceTensor, axis: 0, name: nil)
-            let bool1Tensor = self.graph.lessThan(minAccumulatedTransmittanceTensor, transmittanceThresholdTensor, name: nil)
-            let bool2Tensor = self.graph.lessThan(iterationTensor, maxStepsTensor, name: nil)
-            return self.graph.logicalAND(bool1Tensor, bool2Tensor, name: nil)
-        }
-        let whileAfterBlock: MPSGraphWhileAfterBlock = { [self] (bodyBlockArguments: [MPSGraphTensor]) -> [MPSGraphTensor] in
-            var results: [MPSGraphTensor] = []
-            let rayPos = bodyBlockArguments[0]
-            var accumulatedTransmittanceTensor = bodyBlockArguments[1]
-            var iterationTensor = bodyBlockArguments[2]
-            var tTensor = bodyBlockArguments[3]
-            let rayDir = bodyBlockArguments[4]
-            let deltaScaleTensor = graph.constant(deltaStepScale, dataType: .float32)
-            let deltaTTensor = graph.multiplication(deltaScaleTensor, tTensor, name: nil)
-            let posTensor = self.graph.addition(rayPos, graph.multiplication(deltaTTensor, rayDir, name: nil), name: nil)
-            let hashEncoding = self.invokeHashTable(inputTensor: posTensor, dimension: 1)
-            let activationTensor = self.invokeMLP(inputTensor: hashEncoding)
-            var densityTensor = graph.sliceTensor(activationTensor, dimension: 1, start: 0, length: 1, name: nil)
-            var deltaTransmittanceTensor = graph.multiplication(deltaTTensor, densityTensor, name: nil)
-            let boolTensor = graph.lessThan(accumulatedTransmittanceTensor, transmittanceThresholdTensor, name: nil)
-            accumulatedTransmittanceTensor = graph.addition(accumulatedTransmittanceTensor, deltaTransmittanceTensor, name: nil)
-            tTensor = self.graph.addition(tTensor, graph.multiplication(boolTensor, deltaTTensor, name: nil), name: nil)
-            var oneTensor = self.graph.constant(1, dataType: .float32)
-            oneTensor = self.graph.cast(oneTensor, to: .int32, name: nil)
-            iterationTensor = self.graph.addition(iterationTensor, oneTensor, name: nil)
-            results.append(rayPos)
-            results.append(accumulatedTransmittanceTensor)
-            results.append(iterationTensor)
-            results.append(tTensor)
-            results.append(rayDir)
-            return results
-        }
-        var initialInputs: [MPSGraphTensor] = []
-        initialInputs.append(cameraPosTensor)
-        var initialT: Float = 1.0
-        let initialTData = Data(bytes: &initialT, count: MemoryLayout<Float>.size)
-        var tTensor = graph.constant(initialTData, shape: [1], dataType: .float32)
-        tTensor = graph.broadcast(tTensor, shape: [depthInputTensor.shape![0], 1], name: nil)
-        var initialTransmittance: Float = 0.0
-        let initialTransmittanceData = Data(bytes: &initialTransmittance, count: MemoryLayout<Float>.size)
-        var initialAccumulatedTransmittanceTensor = graph.constant(initialTransmittanceData, shape: [1], dataType: .float32)
-        initialAccumulatedTransmittanceTensor = graph.broadcast(initialAccumulatedTransmittanceTensor, shape: [depthInputTensor.shape![0],1], name: nil)
-        initialInputs.append(initialAccumulatedTransmittanceTensor)
-        var initialI: Int = 0
-        let initialIData = Data(bytes: &initialI, count: MemoryLayout<Int>.size)
-        let iterationTensor = graph.constant(initialIData, shape: [1], dataType: .int32)
-        initialInputs.append(iterationTensor)
-        initialInputs.append(tTensor)
-        initialInputs.append(depthInputTensor)
-        let resultsTensors: [MPSGraphTensor] = graph.while(initialInputs: initialInputs, before: whileBeforeBlock, after: whileAfterBlock, name: nil)
-        //let resultsTensors = initialInputs
-        let accumulatedTTensor = resultsTensors[3]
-        print("accumulatedTTensor shape: [\(accumulatedTTensor.shape![0]), \(accumulatedTTensor.shape![1])]")
-        return graph.division(accumulatedTTensor, maxTTensor, name: nil)
-    }
-    func getDepthMapTensor2(rayThreshold: Double) -> MPSGraphTensor {
-        let transmittanceThresholdTensor = graph.constant(rayThreshold, dataType: .float32)
+    func getDepthMapTensor() -> MPSGraphTensor {
         var activationTensor: MPSGraphTensor = inputsPlaceholderTensor
         if (hashTableInitialized) {
             activationTensor = invokeHashTable(inputTensor: nil, dimension: 2)
-            print("Hash table activation shape: [\(activationTensor.shape![0]),\(activationTensor.shape![1]),\(activationTensor.shape![2])]")
         }
-        //var dirModifiedTensor = graph.reshape(cameraDirPlaceholderTensor!, shape: [-1, 1, 3], name: nil)
-        //dirModifiedTensor = graph.broadcast(dirModifiedTensor, shape: [-1, maxSteps as NSNumber, 3], name: nil)
-        //let mlpInputTensor = graph.concatTensors([activationTensor, dirModifiedTensor], dimension: 2, name: nil)
         activationTensor = invokeMLP(inputTensor: activationTensor)
-        //activationTensor = invokeMLP(inputTensor: mlpInputTensor)
-        print("MLP activation shape: [\(activationTensor.shape![0]),\(activationTensor.shape![1]),\(activationTensor.shape![2])]")
         let densityTensor = graph.sliceTensor(activationTensor, dimension: 2, start: 0, length: 1, name: nil)
         let deltaReshapeTensor = graph.reshape(deltaTPlaceholderTensor!, shape: [1,maxSteps as NSNumber, 1], name: nil)
         let scaledDensityTensor = graph.multiplication(densityTensor, deltaReshapeTensor, name: nil)
-        print("scaledDensityTensor shape: [\(scaledDensityTensor.shape![0]),\(scaledDensityTensor.shape![1]),\(scaledDensityTensor.shape![2])]")
-//        let transmittanceTensor = graph.cumulativeSum(scaledDensityTensor, axis: 1, exclusive: true, reverse: false, name: nil)
-//        let booleanTensor = graph.lessThan(transmittanceTensor, transmittanceThresholdTensor, name: nil)
-//        let subTensor = graph.subtraction(transmittanceTensor, transmittanceThresholdTensor, name: nil)
-//        var signTensor = graph.sign(with: subTensor, name: nil)
-//        //let selectTensor = graph.select(predicate: booleanTensor, trueTensor: graph.constant(0.0, dataType: .float32), falseTensor: graph.constant(1.0, dataType: .float32), name: nil)
-//        signTensor = graph.addition(signTensor, graph.constant(1.0, dataType: .float32), name: nil)
-//        signTensor = graph.division(signTensor, graph.constant(2.0, dataType: .float32), name: nil)
-//        let sumTensor = graph.reductionSum(with: signTensor, axis: 1, name: nil)
         var sumTensor = graph.reductionSum(with: scaledDensityTensor, axis: 1, name: nil)
         sumTensor = graph.negative(with: sumTensor, name: nil)
         sumTensor = graph.exponent(with: sumTensor, name: nil)
@@ -1179,14 +569,14 @@ class NeRF : MLP3D {
         var shuffledIndices = inputData.indices.shuffled()
         var inputDataShuffled = shuffledIndices.map{inputData[$0]}
         var labelDataShuffled = shuffledIndices.map{labelData[$0]}
-        var dirDataShuffled = shuffledIndices.map{dirData[$0]}
+        let dirDataShuffled = shuffledIndices.map{dirData[$0]}
         var inputBatch: [Float] = []
         var labelBatch: [Float] = []
         var dirBatch: [Float] = []
         let deltaValuesData = Data(bytes: &deltaValues, count: deltaValues.count*MemoryLayout<Float>.size)
         let mpsDevice = MPSGraphDevice(mtlDevice: device!)
         let deltaValuesTensorData = MPSGraphTensorData(device: mpsDevice, data: deltaValuesData, shape: [maxSteps as NSNumber], dataType: .float32)
-        for i in 1...numEpochs {
+        for _ in 1...numEpochs {
             loss = 0.0
             var firstIndex = 0
             
@@ -1220,10 +610,6 @@ class NeRF : MLP3D {
                     let labelTensorDataCurrent = MPSGraphTensorData(device: mpsDevice, data: labelTensorDataTemp, shape: [curBatchSize as NSNumber, labelData[0].count as NSNumber], dataType: .float32)
                     let dirTensorDataTemp = Data(bytes: &dirBatch, count: MemoryLayout<Float>.size*dirBatch.count)
                     let dirTensorDataCurrent = MPSGraphTensorData(device: mpsDevice, data: dirTensorDataTemp, shape: [curBatchSize as NSNumber, 3], dataType: .float32)
-    //                var epoch = Float(i)
-    //                let epochTensorDataTemp = Data(bytes: &epoch, count: MemoryLayout<Float>.size)
-    //                epochTensorData[currentTensorDataIndex] = MPSGraphTensorData(device: MPSGraphDevice(mtlDevice: device!), data: epochTensorDataTemp, shape: [1], dataType: .float32)
-                    //print(labelTensorData[currentTensorDataIndex].shape)
                     let execDescriptor = MPSGraphExecutionDescriptor()
                     execDescriptor.completionHandler = { (resultsDictionary, nil) in
                         self.doubleBufferingSemaphore.signal()
@@ -1235,7 +621,6 @@ class NeRF : MLP3D {
                         }
                     }
                     graph.runAsync(with: commandQueue!, feeds: [inputsPlaceholderTensor: inputTensorDataCurrent, labelsPlaceholderTensor: labelTensorDataCurrent, cameraDirPlaceholderTensor!: dirTensorDataCurrent, deltaTPlaceholderTensor!: deltaValuesTensorData], targetTensors: targetTrainingTensors, targetOperations: targetTrainingOps, executionDescriptor: execDescriptor)
-    //                graph.runAsync(with: commandQueue!, feeds: [inputsPlaceholderTensor: inputTensorData[currentTensorDataIndex], labelsPlaceholderTensor: labelTensorData[currentTensorDataIndex], epochPlaceholderTensor: epochTensorData[currentTensorDataIndex]], targetTensors: targetTrainingTensors, targetOperations: targetTrainingOps, executionDescriptor: execDescriptor)
                     
                     firstIndex += batchSize
                 }
@@ -1250,7 +635,7 @@ class NeRF : MLP3D {
         }
             
     }
-    func getInferenceDepthMapPiecemealDynamic(imageWidth: Int, imageHeight: Int, inputData: [[Float]], batchSize: Int, cameraPos: simd_float3, cameraAxis: simd_float3, cameraAngle: Float, focalLength: Float, maxT: Double, minWorldBound: simd_float3, maxWorldBound: simd_float3, getWeights: Bool, resultsOut: inout [MPSGraphTensor: MPSGraphTensorData]) -> ([Float], [Float]) {
+    func getInferenceDepthMap(imageWidth: Int, imageHeight: Int, inputData: [[Float]], batchSize: Int, cameraPos: simd_float3, cameraAxis: simd_float3, cameraAngle: Float, focalLength: Float, maxT: Double, minWorldBound: simd_float3, maxWorldBound: simd_float3, getWeights: Bool, resultsOut: inout [MPSGraphTensor: MPSGraphTensorData]) -> ([Float], [Float]) {
         assert(inputData.count == imageWidth*imageHeight)
         assert(inputData[0].count == 2)
         let mpsDevice = MPSGraphDevice(mtlDevice: device!)
@@ -1264,7 +649,6 @@ class NeRF : MLP3D {
             let deltaT = newT-currentT
             deltaValues.append(deltaT)
             currentT = newT
-            //print("t[\(i)]: \(currentT), deltaT[\(i)]: \(deltaT)")
         }
         let deltaValuesData = Data(bytes: &deltaValues, count: deltaValues.count*MemoryLayout<Float>.size)
         let deltaValuesTensorData = MPSGraphTensorData(device: mpsDevice, data: deltaValuesData, shape: [maxSteps as NSNumber], dataType: .float32)
@@ -1338,7 +722,6 @@ class NeRF : MLP3D {
             let deltaT = newT-currentT
             deltaValues.append(deltaT)
             currentT = newT
-            //print("t[\(i)]: \(currentT), deltaT[\(i)]: \(deltaT)")
         }
         let deltaValuesData = Data(bytes: &deltaValues, count: deltaValues.count*MemoryLayout<Float>.size)
         let deltaValuesTensorData = MPSGraphTensorData(device: mpsDevice, data: deltaValuesData, shape: [maxSteps as NSNumber], dataType: .float32)
@@ -1388,155 +771,5 @@ class NeRF : MLP3D {
         }
         
     }
-    func trainAllDoubleBufferedDynamic(imageWidth: Int, imageHeight: Int, inputsLabels: [([Float], [Float], Int)], numEpochs: Int, batchSize: Int, cameraPos: [simd_float3], cameraAxis: simd_float3, cameraAngle: [Float], focalLength: Float, maxT: Double, minWorldBound: simd_float3, maxWorldBound: simd_float3) {
-        var inputsLabelsShuffled = inputsLabels
-        inputsLabelsShuffled.shuffle()
-        let mpsDevice = MPSGraphDevice(mtlDevice: device!)
-        let execDescriptor = MPSGraphExecutionDescriptor()
-        execDescriptor.completionHandler = { (resultsDictionary, nil) in
-            self.doubleBufferingSemaphore.signal()
-            if (self.lossTensor != nil) {
-                let result = resultsDictionary[self.lossTensor!]
-                var loss: [Float] = Array(repeating: 0.0, count: 1)
-                result!.mpsndarray().readBytes(&loss, strideBytes: nil)
-                self.loss += loss[0]
-            }
-        }
-        var deltaValues: [Float] = []
-        var currentT: Float = 1.0
-        for i in 0..<maxSteps {
-            let b = exp( (log(maxT) - log(1.0)) / Double(maxSteps))
-            let newT = Float(1.0*pow(b, Double(i+1)))
-            let deltaT = newT-currentT
-            deltaValues.append(deltaT)
-            currentT = newT
-            print("t[\(i)]: \(currentT), deltaT[\(i)]: \(deltaT)")
-        }
-        let deltaValuesData = Data(bytes: &deltaValues, count: deltaValues.count*MemoryLayout<Float>.size)
-        let deltaValuesTensorData = MPSGraphTensorData(device: mpsDevice, data: deltaValuesData, shape: [maxSteps as NSNumber], dataType: .float32)
-        for _ in 1...numEpochs {
-            loss = 0.0
-            var firstIndex = 0
-            while (firstIndex < inputsLabels.count) {
-                autoreleasepool {
-                    var inputBatch: [Float] = []
-                    var labelBatch: [Float] = []
-                    var dirBatch: [Float] = []
-                    let curBatchSize: Int = min(batchSize, inputsLabels.count-firstIndex)
-
-                    for triplet in inputsLabelsShuffled[firstIndex..<firstIndex+curBatchSize] {
-                        let arr = triplet.0
-                        let rayDir = simd_float3(x: arr[0] - 0.5, y: arr[1] - 0.5, z: -focalLength)
-                        let rayDirRot = rotateVector(dir: rayDir, axis: cameraAxis, angle: cameraAngle[triplet.2])
-                        let raySteps = castRay(cameraDir: rayDirRot, cameraPos: cameraPos[triplet.2], numSteps: maxSteps, minWorldBound: minWorldBound, maxWorldBound: maxWorldBound, deltaValues: deltaValues)
-                        inputBatch.append(contentsOf: raySteps)
-                        let rayDirNormalized = simd_normalize(rayDir)
-                        dirBatch.append(rayDirNormalized.x)
-                        dirBatch.append(rayDirNormalized.y)
-                        dirBatch.append(rayDirNormalized.z)
-                    }
-                    
-                    for triplet in inputsLabelsShuffled[firstIndex..<firstIndex+curBatchSize] {
-                        for elem in triplet.1 {
-                            labelBatch.append(elem)
-                        }
-                    }
-                    
-                    doubleBufferingSemaphore.wait()
-                    let inputTensorDataTemp = Data(bytes: &inputBatch, count: MemoryLayout<Float>.size*inputBatch.count)
-                    let inputTensorDataCurrent = MPSGraphTensorData(device: mpsDevice, data: inputTensorDataTemp, shape: [curBatchSize as NSNumber, maxSteps as NSNumber, 3], dataType: .float32)
-                    //print(inputTensorData[currentTensorDataIndex].shape)
-                    let labelTensorDataTemp = Data(bytes: &labelBatch, count: MemoryLayout<Float>.size*labelBatch.count)
-                    let labelTensorDataCurrent = MPSGraphTensorData(device: mpsDevice, data: labelTensorDataTemp, shape: [curBatchSize as NSNumber, inputsLabels[0].1.count as NSNumber], dataType: .float32)
-                    let dirTensorDataTemp = Data(bytes: &dirBatch, count: MemoryLayout<Float>.size*dirBatch.count)
-                    let dirTensorDataCurrent = MPSGraphTensorData(device: mpsDevice, data: dirTensorDataTemp, shape: [curBatchSize as NSNumber, 3], dataType: .float32)
-                    graph.runAsync(with: commandQueue!, feeds: [inputsPlaceholderTensor: inputTensorDataCurrent, labelsPlaceholderTensor: labelTensorDataCurrent, cameraDirPlaceholderTensor!: dirTensorDataCurrent, deltaTPlaceholderTensor!: deltaValuesTensorData], targetTensors: targetTrainingTensors, targetOperations: targetTrainingOps, executionDescriptor: execDescriptor)
-                }
-                firstIndex += batchSize
-            }
-            inputsLabelsShuffled.shuffle()
-            print("Loss: \(loss)")
-        }
-        
-    }
-    func generateDepthMap(inputData: [[Float]], cameraPos: simd_float3, cameraAxis: simd_float3, cameraAngle: Float, focalLength: Float, maxT: Double) -> [Float] {
-        let mps_device = MPSGraphDevice(mtlDevice: device!)
-        var depthPosInputs: [Float] = []
-        for arr in inputData {
-            let rayDir = simd_float3(x: arr[0] - 0.5, y: arr[1] - 0.5, z: -focalLength)
-            let rayDirRot = rotateVector(dir: rayDir, axis: cameraAxis, angle: cameraAngle)
-            depthPosInputs.append(rayDirRot.x)
-            depthPosInputs.append(rayDirRot.y)
-            depthPosInputs.append(rayDirRot.z)
-        }
-        let depthPosInputsData = Data(bytes: &depthPosInputs, count: MemoryLayout<Float>.size*depthPosInputs.count)
-        //let depthPosInputsTensorData = MPSGraphTensorData(device: mps_device, data: depthPosInputsData, shape: [inputData.count as NSNumber, 2], dataType: .float32)
-        let depthPosTensor = graph.constant(depthPosInputsData, shape: [inputData.count as NSNumber, 3], dataType: .float32)
-        var cameraPosArr: [Float] = [cameraPos.x, cameraPos.y, cameraPos.z]
-        let cameraPosData = Data(bytes: &cameraPosArr, count: MemoryLayout<Float>.size*3)
-        let cameraPosTensor = graph.constant(cameraPosData, shape: [3], dataType: .float32)
-        //let cameraPosTensorData = MPSGraphTensorData(device: mps_device, data: cameraPosData, shape: [3], dataType: .float32)
-        var depthMapTensor = getDepthMapTensor(deltaStepScale: 0.3, rayThreshold: -log(0.01), maxT: maxT, depthInputTensor: depthPosTensor, cameraPosTensor: cameraPosTensor )
-        let resultsDict = graph.run(feeds: [:], targetTensors: [depthMapTensor], targetOperations: nil)
-        let resultsData = resultsDict[depthMapTensor]
-        var results: [Float] = []
-        if (resultsData != nil) {
-            results = Array(repeating: 0.0, count: inputData.count)
-            resultsData!.mpsndarray().readBytes(&results, strideBytes: nil)
-        }
-        return results
-    }
     
-    func generateDepthMap2(inputData: [[Float]], dirData: [[Float]], deltaValues: inout [Float]) -> [Float] {
-        autoreleasepool {
-            let mpsDevice = MPSGraphDevice(mtlDevice: device!)
-            var inputDataFlattened: [Float] = Array(inputData.joined())
-            var dirDataFlattened: [Float] = Array(dirData.joined())
-            let inputTensorData = Data(bytes: &inputDataFlattened, count: MemoryLayout<Float>.size*inputDataFlattened.count)
-            let inputGraphTensorData = MPSGraphTensorData(device: mpsDevice, data: inputTensorData, shape: [inputData.count as NSNumber, maxSteps as NSNumber, 3], dataType: .float32)
-            let dirTensorData = Data(bytes: &dirDataFlattened, count: MemoryLayout<Float>.size*dirDataFlattened.count)
-            let dirGraphTensorData = MPSGraphTensorData(device: mpsDevice, data: dirTensorData, shape: [dirData.count as NSNumber, dirData[0].count as NSNumber], dataType: .float32)
-            let deltaTensorData = Data(bytes: &deltaValues, count: MemoryLayout<Float>.size*deltaValues.count)
-            let deltaGraphTensorData = MPSGraphTensorData(device: mpsDevice, data: deltaTensorData, shape: [deltaValues.count as NSNumber], dataType: .float32)
-            let resultsDict = graph.run(feeds: [inputsPlaceholderTensor : inputGraphTensorData, cameraDirPlaceholderTensor!: dirGraphTensorData, deltaTPlaceholderTensor!: deltaGraphTensorData], targetTensors: [depthMapTensor!], targetOperations: nil)
-            var results: [Float] = []
-            let resultsData = resultsDict[depthMapTensor!]
-            if (resultsData != nil) {
-                results = Array(repeating: 0, count: inputData.count)
-                resultsData!.mpsndarray().readBytes(&results, strideBytes: nil)
-            }
-            return results
-        }
-
-    }
-    
-    func getInference(inputData: [[Float]], dirData: [[Float]], deltaValues: inout [Float], getWeights: Bool, resultsOut: inout [MPSGraphTensor: MPSGraphTensorData]) -> [Float] {
-        var results: [Float] = []
-        if (targetInferenceTensor != nil) {
-            let mpsDevice = MPSGraphDevice(mtlDevice: device!)
-            var inputDataFlattened: [Float] = Array(inputData.joined())
-            var dirDataFlattened: [Float] = Array(dirData.joined())
-            let inputTensorData = Data(bytes: &inputDataFlattened, count: MemoryLayout<Float>.size*inputDataFlattened.count)
-            let inputGraphTensorData = MPSGraphTensorData(device: mpsDevice, data: inputTensorData, shape: [inputData.count as NSNumber, maxSteps as NSNumber, 3], dataType: .float32)
-            let dirTensorData = Data(bytes: &dirDataFlattened, count: MemoryLayout<Float>.size*dirDataFlattened.count)
-            let dirGraphTensorData = MPSGraphTensorData(device: mpsDevice, data: dirTensorData, shape: [dirData.count as NSNumber, dirData[0].count as NSNumber], dataType: .float32)
-            let deltaTensorData = Data(bytes: &deltaValues, count: MemoryLayout<Float>.size*deltaValues.count)
-            let deltaGraphTensorData = MPSGraphTensorData(device: mpsDevice, data: deltaTensorData, shape: [deltaValues.count as NSNumber], dataType: .float32)
-            var targetTensors: [MPSGraphTensor] = [targetInferenceTensor!]
-            if (getWeights) {
-                targetTensors.append(contentsOf: layerWeightTensors)
-                targetTensors.append(contentsOf: layerBiasTensors)
-                targetTensors.append(contentsOf: hashTableWeightTensors)
-            }
-            let resultsDict = graph.run(feeds: [inputsPlaceholderTensor : inputGraphTensorData, cameraDirPlaceholderTensor!: dirGraphTensorData, deltaTPlaceholderTensor!: deltaGraphTensorData], targetTensors: targetTensors, targetOperations: nil)
-            resultsOut = resultsDict
-            let resultsData = resultsDict[targetInferenceTensor!]
-            if (resultsData != nil) {
-                results = Array(repeating: 0.0, count: inputData.count*labelSize)
-                resultsData!.mpsndarray().readBytes(&results, strideBytes: nil)
-            }
-            
-        }
-        return results
-    }
 }

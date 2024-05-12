@@ -19,7 +19,7 @@ let outFilePath = URL(fileURLWithPath: "weights.json")
 let maxT: Double = 8
 let maxSteps = 64
 let numImages = 3
-let epochs = 4
+let epochs = 1
 
 let cameraPos: [simd_float3] = [simd_float3(x: -0.8, y: 0, z: -7.916),
                                 simd_float3(x: 0, y: 0, z: -8.0),
@@ -80,16 +80,15 @@ if (!labels.isEmpty) {
         nerf.addDenseLayer(inputSize: 64, outputSize: 64, activationFunction: .ReLU, initialWeightArray: nil, initialBiasArray: nil)
         nerf.addDenseLayer(inputSize: 64, outputSize: 4, activationFunction: .Sigmoid, initialWeightArray: nil, initialBiasArray: nil)
     }
-//
+
     nerf.finalize(inputTensor: nil)
-    //nerf.trainDoubleBuffered(inputData: inputs, labelData: imageData2d, dirData: cameraDirs, deltaValues: &deltaValues, numLabels: cgi!.width*cgi!.height, numEpochs: 3, batchSize: min(256, cgi!.width*cgi!.height), inputDataType: .float32)
-//    for _ in 0..<epochs {
-//        for imageIndex in 0..<numImages {
-//            nerf.trainDoubleBufferedDynamic(imageWidth: lastCGI!.width, imageHeight: lastCGI!.height, inputData: inputs, labelData: labels[imageIndex], numLabels: lastCGI!.width*lastCGI!.height, numEpochs: 1, batchSize: min(256, lastCGI!.width*lastCGI!.height), cameraPos: cameraPos[imageIndex], cameraAxis: simd_float3(0,1,0), cameraAngle: cameraAngle[imageIndex], focalLength: 0.5, maxT: maxT, minWorldBound: simd_float3(-10,-10,-10), maxWorldBound: simd_float3(10,10,10))
-//        }
-//    }
+    for _ in 0..<epochs {
+        for imageIndex in 0..<numImages {
+            nerf.trainDoubleBufferedDynamic(imageWidth: lastCGI!.width, imageHeight: lastCGI!.height, inputData: inputs, labelData: labels[imageIndex], numLabels: lastCGI!.width*lastCGI!.height, numEpochs: 1, batchSize: min(256, lastCGI!.width*lastCGI!.height), cameraPos: cameraPos[imageIndex], cameraAxis: simd_float3(0,1,0), cameraAngle: cameraAngle[imageIndex], focalLength: 0.5, maxT: maxT, minWorldBound: simd_float3(-10,-10,-10), maxWorldBound: simd_float3(10,10,10))
+        }
+    }
     var resultsDict: [MPSGraphTensor: MPSGraphTensorData] = [:]
-    let (results, depthMap) = nerf.getInferenceDepthMapPiecemealDynamic(imageWidth: lastCGI!.width, imageHeight: lastCGI!.height, inputData: inputs, batchSize: lastCGI!.width*lastCGI!.height / 32, cameraPos: cameraPos[1], cameraAxis: simd_float3(0,1,0), cameraAngle: cameraAngle[1], focalLength: 0.5, maxT: maxT, minWorldBound: simd_float3(-10,-10,-10), maxWorldBound: simd_float3(10,10,10), getWeights: true, resultsOut: &resultsDict)
+    let (results, depthMap) = nerf.getInferenceDepthMap(imageWidth: lastCGI!.width, imageHeight: lastCGI!.height, inputData: inputs, batchSize: lastCGI!.width*lastCGI!.height / 32, cameraPos: cameraPos[1], cameraAxis: simd_float3(0,1,0), cameraAngle: cameraAngle[1], focalLength: 0.5, maxT: maxT, minWorldBound: simd_float3(-10,-10,-10), maxWorldBound: simd_float3(10,10,10), getWeights: true, resultsOut: &resultsDict)
     let depthMapRGB = convertDepthImageToRGB2(depthImage: depthMap)
     //let depthMapRGB = convertDepthImageToRGB2(depthImage: depthMap)
     let jsonData = nerf.getVariableData(results: resultsDict)
