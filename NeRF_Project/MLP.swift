@@ -1156,17 +1156,17 @@ class NeRF : MLP3D {
         let deltaReshapeTensor = graph.reshape(deltaTPlaceholderTensor!, shape: [1,maxSteps as NSNumber, 1], name: nil)
         let scaledDensityTensor = graph.multiplication(densityTensor, deltaReshapeTensor, name: nil)
         print("scaledDensityTensor shape: [\(scaledDensityTensor.shape![0]),\(scaledDensityTensor.shape![1]),\(scaledDensityTensor.shape![2])]")
-        let transmittanceTensor = graph.cumulativeSum(scaledDensityTensor, axis: 1, exclusive: true, reverse: false, name: nil)
-        let booleanTensor = graph.lessThan(transmittanceTensor, transmittanceThresholdTensor, name: nil)
-        let subTensor = graph.subtraction(transmittanceTensor, transmittanceThresholdTensor, name: nil)
-        var signTensor = graph.sign(with: subTensor, name: nil)
-        //let selectTensor = graph.select(predicate: booleanTensor, trueTensor: graph.constant(0.0, dataType: .float32), falseTensor: graph.constant(1.0, dataType: .float32), name: nil)
-        signTensor = graph.addition(signTensor, graph.constant(1.0, dataType: .float32), name: nil)
-        signTensor = graph.division(signTensor, graph.constant(2.0, dataType: .float32), name: nil)
-        let sumTensor = graph.reductionSum(with: signTensor, axis: 1, name: nil)
-//        var sumTensor = graph.reductionSum(with: scaledDensityTensor, axis: 1, name: nil)
-//        sumTensor = graph.negative(with: sumTensor, name: nil)
-//        sumTensor = graph.exponent(with: sumTensor, name: nil)
+//        let transmittanceTensor = graph.cumulativeSum(scaledDensityTensor, axis: 1, exclusive: true, reverse: false, name: nil)
+//        let booleanTensor = graph.lessThan(transmittanceTensor, transmittanceThresholdTensor, name: nil)
+//        let subTensor = graph.subtraction(transmittanceTensor, transmittanceThresholdTensor, name: nil)
+//        var signTensor = graph.sign(with: subTensor, name: nil)
+//        //let selectTensor = graph.select(predicate: booleanTensor, trueTensor: graph.constant(0.0, dataType: .float32), falseTensor: graph.constant(1.0, dataType: .float32), name: nil)
+//        signTensor = graph.addition(signTensor, graph.constant(1.0, dataType: .float32), name: nil)
+//        signTensor = graph.division(signTensor, graph.constant(2.0, dataType: .float32), name: nil)
+//        let sumTensor = graph.reductionSum(with: signTensor, axis: 1, name: nil)
+        var sumTensor = graph.reductionSum(with: scaledDensityTensor, axis: 1, name: nil)
+        sumTensor = graph.negative(with: sumTensor, name: nil)
+        sumTensor = graph.exponent(with: sumTensor, name: nil)
         let resultTensor = graph.reshape(sumTensor, shape: [-1,1], name: nil)
         return resultTensor
     }
@@ -1338,7 +1338,7 @@ class NeRF : MLP3D {
             let deltaT = newT-currentT
             deltaValues.append(deltaT)
             currentT = newT
-            print("t[\(i)]: \(currentT), deltaT[\(i)]: \(deltaT)")
+            //print("t[\(i)]: \(currentT), deltaT[\(i)]: \(deltaT)")
         }
         let deltaValuesData = Data(bytes: &deltaValues, count: deltaValues.count*MemoryLayout<Float>.size)
         let deltaValuesTensorData = MPSGraphTensorData(device: mpsDevice, data: deltaValuesData, shape: [maxSteps as NSNumber], dataType: .float32)
@@ -1388,7 +1388,77 @@ class NeRF : MLP3D {
         }
         
     }
-    
+    func trainAllDoubleBufferedDynamic(imageWidth: Int, imageHeight: Int, inputsLabels: [([Float], [Float], Int)], numEpochs: Int, batchSize: Int, cameraPos: [simd_float3], cameraAxis: simd_float3, cameraAngle: [Float], focalLength: Float, maxT: Double, minWorldBound: simd_float3, maxWorldBound: simd_float3) {
+        var inputsLabelsShuffled = inputsLabels
+        inputsLabelsShuffled.shuffle()
+        let mpsDevice = MPSGraphDevice(mtlDevice: device!)
+        let execDescriptor = MPSGraphExecutionDescriptor()
+        execDescriptor.completionHandler = { (resultsDictionary, nil) in
+            self.doubleBufferingSemaphore.signal()
+            if (self.lossTensor != nil) {
+                let result = resultsDictionary[self.lossTensor!]
+                var loss: [Float] = Array(repeating: 0.0, count: 1)
+                result!.mpsndarray().readBytes(&loss, strideBytes: nil)
+                self.loss += loss[0]
+            }
+        }
+        var deltaValues: [Float] = []
+        var currentT: Float = 1.0
+        for i in 0..<maxSteps {
+            let b = exp( (log(maxT) - log(1.0)) / Double(maxSteps))
+            let newT = Float(1.0*pow(b, Double(i+1)))
+            let deltaT = newT-currentT
+            deltaValues.append(deltaT)
+            currentT = newT
+            print("t[\(i)]: \(currentT), deltaT[\(i)]: \(deltaT)")
+        }
+        let deltaValuesData = Data(bytes: &deltaValues, count: deltaValues.count*MemoryLayout<Float>.size)
+        let deltaValuesTensorData = MPSGraphTensorData(device: mpsDevice, data: deltaValuesData, shape: [maxSteps as NSNumber], dataType: .float32)
+        for _ in 1...numEpochs {
+            loss = 0.0
+            var firstIndex = 0
+            while (firstIndex < inputsLabels.count) {
+                autoreleasepool {
+                    var inputBatch: [Float] = []
+                    var labelBatch: [Float] = []
+                    var dirBatch: [Float] = []
+                    let curBatchSize: Int = min(batchSize, inputsLabels.count-firstIndex)
+
+                    for triplet in inputsLabelsShuffled[firstIndex..<firstIndex+curBatchSize] {
+                        let arr = triplet.0
+                        let rayDir = simd_float3(x: arr[0] - 0.5, y: arr[1] - 0.5, z: -focalLength)
+                        let rayDirRot = rotateVector(dir: rayDir, axis: cameraAxis, angle: cameraAngle[triplet.2])
+                        let raySteps = castRay(cameraDir: rayDirRot, cameraPos: cameraPos[triplet.2], numSteps: maxSteps, minWorldBound: minWorldBound, maxWorldBound: maxWorldBound, deltaValues: deltaValues)
+                        inputBatch.append(contentsOf: raySteps)
+                        let rayDirNormalized = simd_normalize(rayDir)
+                        dirBatch.append(rayDirNormalized.x)
+                        dirBatch.append(rayDirNormalized.y)
+                        dirBatch.append(rayDirNormalized.z)
+                    }
+                    
+                    for triplet in inputsLabelsShuffled[firstIndex..<firstIndex+curBatchSize] {
+                        for elem in triplet.1 {
+                            labelBatch.append(elem)
+                        }
+                    }
+                    
+                    doubleBufferingSemaphore.wait()
+                    let inputTensorDataTemp = Data(bytes: &inputBatch, count: MemoryLayout<Float>.size*inputBatch.count)
+                    let inputTensorDataCurrent = MPSGraphTensorData(device: mpsDevice, data: inputTensorDataTemp, shape: [curBatchSize as NSNumber, maxSteps as NSNumber, 3], dataType: .float32)
+                    //print(inputTensorData[currentTensorDataIndex].shape)
+                    let labelTensorDataTemp = Data(bytes: &labelBatch, count: MemoryLayout<Float>.size*labelBatch.count)
+                    let labelTensorDataCurrent = MPSGraphTensorData(device: mpsDevice, data: labelTensorDataTemp, shape: [curBatchSize as NSNumber, inputsLabels[0].1.count as NSNumber], dataType: .float32)
+                    let dirTensorDataTemp = Data(bytes: &dirBatch, count: MemoryLayout<Float>.size*dirBatch.count)
+                    let dirTensorDataCurrent = MPSGraphTensorData(device: mpsDevice, data: dirTensorDataTemp, shape: [curBatchSize as NSNumber, 3], dataType: .float32)
+                    graph.runAsync(with: commandQueue!, feeds: [inputsPlaceholderTensor: inputTensorDataCurrent, labelsPlaceholderTensor: labelTensorDataCurrent, cameraDirPlaceholderTensor!: dirTensorDataCurrent, deltaTPlaceholderTensor!: deltaValuesTensorData], targetTensors: targetTrainingTensors, targetOperations: targetTrainingOps, executionDescriptor: execDescriptor)
+                }
+                firstIndex += batchSize
+            }
+            inputsLabelsShuffled.shuffle()
+            print("Loss: \(loss)")
+        }
+        
+    }
     func generateDepthMap(inputData: [[Float]], cameraPos: simd_float3, cameraAxis: simd_float3, cameraAngle: Float, focalLength: Float, maxT: Double) -> [Float] {
         let mps_device = MPSGraphDevice(mtlDevice: device!)
         var depthPosInputs: [Float] = []

@@ -391,3 +391,13 @@ func zipInputsLabels(inputs: [[Float]], labels: [[Float]]) -> [([Float], [Float]
     }
     return result
 }
+
+func zipInputsLabelsImageIndex(inputs: [[Float]], labels: [[Float]], imageIndex: Int) ->[([Float], [Float], Int)] {
+    var result: [([Float], [Float], Int)] = []
+    assert(inputs.count == labels.count)
+    for i in 0..<inputs.count {
+        let triplet: ([Float], [Float], Int) = (inputs[i], labels[i], imageIndex)
+        result.append(triplet)
+    }
+    return result
+}
